@@ -30,9 +30,13 @@ interface EditorState {
   panX: number;
   panY: number;
   batchItems: BatchItem[];
+  batchProgress: number; // 0–100
+  batchRunning: boolean;
   presets: Preset[];
   history: HistoryEntry[];
   historyIndex: number;
+  showRuler: boolean;
+  dpi: number; // for print PDF export
 
   setSettings: (patch: Partial<HalftoneSettings>) => void;
   setViewMode: (v: ViewMode) => void;
@@ -45,6 +49,10 @@ interface EditorState {
   addBatchItem: (item: BatchItem) => void;
   updateBatchItem: (id: string, patch: Partial<BatchItem>) => void;
   clearBatch: () => void;
+  setBatchProgress: (progress: number) => void;
+  setBatchRunning: (running: boolean) => void;
+  setShowRuler: (show: boolean) => void;
+  setDpi: (dpi: number) => void;
 
   addPreset: (preset: Preset) => void;
   deletePreset: (id: string) => void;
@@ -64,6 +72,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   panX: 0,
   panY: 0,
   batchItems: [],
+  batchProgress: 0,
+  batchRunning: false,
+  showRuler: true,
+  dpi: 300,
   presets: [],
   history: [{ settings: DEFAULT_SETTINGS }],
   historyIndex: 0,
@@ -84,7 +96,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       batchItems: s.batchItems.map((b) => (b.id === id ? { ...b, ...patch } : b)),
     })),
-  clearBatch: () => set({ batchItems: [] }),
+  clearBatch: () => set({ batchItems: [], batchProgress: 0, batchRunning: false }),
+  setBatchProgress: (batchProgress) => set({ batchProgress }),
+  setBatchRunning: (batchRunning) => set({ batchRunning }),
+  setShowRuler: (showRuler) => set({ showRuler }),
+  setDpi: (dpi) => set({ dpi }),
 
   addPreset: (preset) => set((s) => ({ presets: [preset, ...s.presets] })),
   deletePreset: (id) => set((s) => ({ presets: s.presets.filter((p) => p.id !== id) })),

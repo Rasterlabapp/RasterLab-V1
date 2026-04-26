@@ -1,21 +1,34 @@
 'use client';
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { useEditorStore } from '@/store/editor-store';
 import { renderHalftone } from '@/lib/halftone-engine';
+import { Ruler, RulerCorner, RULER_SIZE } from './Ruler';
 
 export function Canvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const lastPan = useRef({ x: 0, y: 0 });
+  const [containerSize, setContainerSize] = useState({ w: 800, h: 600 });
 
   const {
     settings, viewMode, sourceImage, setRenderTime,
-    zoom, setZoom, panX, panY, setPan,
+    zoom, setZoom, panX, panY, setPan, showRuler,
   } = useEditorStore();
 
-  // Render halftone whenever source/settings/viewMode changes
+  // Track container size for ruler length
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setContainerSize({ w: entry.contentRect.width, h: entry.contentRect.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Render halftone
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !sourceImage) return;
@@ -59,7 +72,7 @@ export function Canvas() {
     return () => el.removeEventListener('wheel', onWheel);
   }, [onWheel]);
 
-  // Pan with Alt + drag
+  // Alt+drag pan
   const onMouseDown = (e: React.MouseEvent) => {
     if (!e.altKey) return;
     isPanning.current = true;
@@ -80,35 +93,53 @@ export function Canvas() {
   const pixelated = zoom > 2;
 
   return (
-    <div
-      ref={containerRef}
-      className="flex-1 overflow-hidden bg-zinc-950 flex items-center justify-center relative"
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-      style={{ cursor: 'default' }}
-    >
-      {!sourceImage ? (
-        <DropZone />
-      ) : (
-        <div
-          style={{
-            transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
-            transformOrigin: 'center center',
-            transition: 'transform 0.05s ease-out',
-          }}
-        >
-          <canvas
-            ref={canvasRef}
-            style={{
-              display: 'block',
-              imageRendering: pixelated ? 'pixelated' : 'auto',
-              boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
-            }}
-          />
+    <div className="flex-1 overflow-hidden flex flex-col bg-zinc-950">
+      {/* Ruler row: corner + horizontal ruler */}
+      {showRuler && (
+        <div className="flex flex-shrink-0" style={{ height: RULER_SIZE }}>
+          <RulerCorner />
+          <Ruler orientation="horizontal" length={containerSize.w - RULER_SIZE} />
         </div>
       )}
+
+      {/* Main area: vertical ruler + canvas */}
+      <div className="flex flex-1 overflow-hidden">
+        {showRuler && (
+          <div className="flex-shrink-0" style={{ width: RULER_SIZE }}>
+            <Ruler orientation="vertical" length={containerSize.h} />
+          </div>
+        )}
+
+        <div
+          ref={containerRef}
+          className="flex-1 overflow-hidden flex items-center justify-center relative"
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+        >
+          {!sourceImage ? (
+            <DropZone />
+          ) : (
+            <div
+              style={{
+                transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
+                transformOrigin: 'center center',
+                transition: 'transform 0.05s ease-out',
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                style={{
+                  display: 'block',
+                  imageRendering: pixelated ? 'pixelated' : 'auto',
+                  boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

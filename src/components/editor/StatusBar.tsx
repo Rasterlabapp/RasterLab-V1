@@ -3,7 +3,7 @@
 import { useEditorStore } from '@/store/editor-store';
 
 export function StatusBar() {
-  const { renderTimeMs, zoom, sourceImage, settings } = useEditorStore();
+  const { renderTimeMs, zoom, sourceImage, settings, dpi, batchRunning, batchProgress } = useEditorStore();
 
   return (
     <div className="h-7 bg-zinc-950 border-t border-zinc-800 flex items-center px-4 gap-6 text-xs text-zinc-600">
@@ -17,6 +17,14 @@ export function StatusBar() {
       <span>|</span>
       <span>Mode: {settings.mode}</span>
       {settings.cmykMode && <><span>|</span><span className="text-indigo-400">CMYK</span></>}
+      <span>|</span>
+      <span>{dpi} dpi</span>
+      {batchRunning && (
+        <>
+          <span>|</span>
+          <span className="text-yellow-400">Batch {batchProgress}%</span>
+        </>
+      )}
       <span className="ml-auto">{renderTimeMs > 0 ? `${renderTimeMs}ms` : '—'}</span>
     </div>
   );

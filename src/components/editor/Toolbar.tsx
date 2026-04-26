@@ -10,7 +10,7 @@ const VIEW_MODES: { label: string; value: ViewMode }[] = [
 ];
 
 export function Toolbar() {
-  const { viewMode, setViewMode, zoom, setZoom, resetView, undo, redo, historyIndex, history } =
+  const { viewMode, setViewMode, zoom, setZoom, resetView, undo, redo, historyIndex, history, showRuler, setShowRuler } =
     useEditorStore();
 
   return (
@@ -73,6 +73,21 @@ export function Toolbar() {
           className="px-2 py-0.5 rounded hover:bg-zinc-800 hover:text-white transition-colors"
         >Fit</button>
       </div>
+
+      <span className="text-zinc-600">|</span>
+
+      {/* Ruler toggle */}
+      <button
+        onClick={() => setShowRuler(!showRuler)}
+        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+          showRuler
+            ? 'bg-zinc-700 text-white'
+            : 'text-zinc-500 hover:text-white hover:bg-zinc-800'
+        }`}
+        title="Toggle ruler"
+      >
+        ⊞ Ruler
+      </button>
     </div>
   );
 }
