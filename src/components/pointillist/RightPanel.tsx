@@ -5,53 +5,58 @@ import { usePointillistStore } from '@/store/pointillist-store';
 import { renderPointillistCore } from '@/lib/pointillist-engine';
 
 type Tab = 'presets' | 'export';
+type BgMode = 'white' | 'transparent';
+
+// ─── RightPanel shell ─────────────────────────────────────────────────────────
 
 export function RightPanel() {
   const [tab, setTab] = useState<Tab>('presets');
 
   return (
-    <aside className="w-56 flex flex-col bg-[#111113] border-l border-white/5">
+    <aside className="w-52 flex flex-col bg-[#0f0f12] border-l border-white/[0.06] flex-shrink-0">
+
       {/* Tab bar */}
-      <div className="flex border-b border-white/5 flex-shrink-0">
+      <div className="flex border-b border-white/[0.06] flex-shrink-0">
         {(['presets', 'export'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 py-3 text-[11px] font-semibold capitalize tracking-wide transition-colors ${
-              tab === t
-                ? 'text-white border-b-2 border-indigo-500'
-                : 'text-zinc-600 hover:text-zinc-300'
+            className={`flex-1 py-3 text-[10px] font-bold tracking-[0.1em] uppercase transition-all duration-150 relative ${
+              tab === t ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'
             }`}
           >
             {t}
+            {tab === t && (
+              <span className="absolute bottom-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full" />
+            )}
           </button>
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-contain">
         {tab === 'presets' && <PresetsTab />}
-        {tab === 'export' && <ExportTab />}
+        {tab === 'export'  && <ExportTab />}
       </div>
     </aside>
   );
 }
 
-// ─── Presets ─────────────────────────────────────────────────────────────────
+// ─── Presets tab ──────────────────────────────────────────────────────────────
 
 const PRESET_ICONS: Record<string, string> = {
   impressionist: '🎨',
-  seurat: '⬤',
-  stipple: '✦',
-  coarse: '◉',
-  'edge-only': '◌',
-  neon: '✺',
+  seurat:        '⬤',
+  stipple:       '✦',
+  coarse:        '◉',
+  'edge-only':   '◌',
+  neon:          '✺',
 };
 
 function PresetsTab() {
-  const { presets, activePresetId, loadPreset, addPreset, deletePreset, settings } =
+  const { presets, activePresetId, loadPreset, addPreset, deletePreset } =
     usePointillistStore();
   const [newName, setNewName] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [saving,  setSaving]  = useState(false);
 
   const save = () => {
     if (!newName.trim()) return;
@@ -60,17 +65,17 @@ function PresetsTab() {
     setSaving(false);
   };
 
-  const builtIn = presets.filter((p) => !p.id.includes('-') || p.id.length < 20);
-  const custom = presets.filter((p) => p.id.length >= 20);
+  const builtIn = presets.slice(0, 6);
+  const custom  = presets.slice(6);
 
   return (
-    <div className="p-4 flex flex-col gap-4">
+    <div className="p-3 flex flex-col gap-5">
 
       {/* Built-in */}
-      <div className="flex flex-col gap-1">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-1">Built-in</span>
-        {presets.slice(0, 6).map((p) => (
-          <PresetCard
+      <div className="flex flex-col gap-0.5">
+        <SectionLabel>Built-in</SectionLabel>
+        {builtIn.map((p) => (
+          <PresetRow
             key={p.id}
             icon={PRESET_ICONS[p.id] ?? '⬤'}
             name={p.name}
@@ -82,10 +87,10 @@ function PresetsTab() {
 
       {/* Custom */}
       {custom.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-1">Custom</span>
+        <div className="flex flex-col gap-0.5">
+          <SectionLabel>Custom</SectionLabel>
           {custom.map((p) => (
-            <PresetCard
+            <PresetRow
               key={p.id}
               icon="◈"
               name={p.name}
@@ -98,20 +103,20 @@ function PresetsTab() {
       )}
 
       {/* Save current */}
-      <div className="border-t border-white/5 pt-4">
+      <div className="border-t border-white/[0.05] pt-4">
         {saving ? (
           <div className="flex gap-1.5">
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && save()}
+              onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setSaving(false); }}
               placeholder="Preset name…"
               autoFocus
-              className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+              className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
             />
             <button
               onClick={save}
-              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium"
+              className="w-7 h-7 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold flex-shrink-0 flex items-center justify-center transition-colors"
             >
               ✓
             </button>
@@ -119,7 +124,7 @@ function PresetsTab() {
         ) : (
           <button
             onClick={() => setSaving(true)}
-            className="w-full py-2 border border-dashed border-white/10 hover:border-indigo-500/50 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="w-full py-2 border border-dashed border-white/[0.08] hover:border-indigo-500/40 rounded-lg text-[11px] text-zinc-600 hover:text-zinc-300 transition-all duration-150"
           >
             + Save current as preset
           </button>
@@ -129,32 +134,31 @@ function PresetsTab() {
   );
 }
 
-function PresetCard({
-  icon, name, active, onLoad, onDelete,
-}: {
+function PresetRow({ icon, name, active, onLoad, onDelete }: {
   icon: string; name: string; active: boolean;
   onLoad: () => void; onDelete?: () => void;
 }) {
   return (
     <div
       onClick={onLoad}
-      className={`group flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-150 ${
+      className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-150 ${
         active
-          ? 'bg-indigo-600/20 border border-indigo-500/30'
-          : 'hover:bg-white/5 border border-transparent'
+          ? 'bg-indigo-600/[0.15] border border-indigo-500/25'
+          : 'border border-transparent hover:bg-white/[0.04]'
       }`}
     >
-      <span className={`text-sm flex-shrink-0 ${active ? 'text-indigo-400' : 'text-zinc-500'}`}>
+      <span className={`text-xs flex-shrink-0 w-4 text-center ${active ? 'text-indigo-400' : 'text-zinc-600'}`}>
         {icon}
       </span>
-      <span className={`flex-1 text-xs font-medium truncate ${active ? 'text-white' : 'text-zinc-400 group-hover:text-zinc-200'}`}>
+      <span className={`flex-1 text-[11px] font-medium truncate ${active ? 'text-white' : 'text-zinc-400 group-hover:text-zinc-200'}`}>
         {name}
       </span>
       {active && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />}
-      {onDelete && (
+      {onDelete && !active && (
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 text-xs transition-opacity"
+          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 text-xs w-4 text-center transition-all duration-100"
+          title="Delete preset"
         >
           ×
         </button>
@@ -163,50 +167,38 @@ function PresetCard({
   );
 }
 
-// ─── Export ───────────────────────────────────────────────────────────────────
-
-type BgMode = 'white' | 'transparent';
+// ─── Export tab ───────────────────────────────────────────────────────────────
 
 function ExportTab() {
   const { sourceImage, settings } = usePointillistStore();
-  const [bgMode, setBgMode] = useState<BgMode>('white');
+  const [bgMode,   setBgMode]   = useState<BgMode>('white');
   const [exporting, setExporting] = useState<null | '1x' | '2x'>(null);
 
   const runExport = async (scale: 1 | 2) => {
     if (!sourceImage || exporting) return;
-    const key = scale === 1 ? '1x' : '2x';
-    setExporting(key);
-
-    // Yield to let the UI update (spinner visible) before heavy work
-    await new Promise<void>((r) => setTimeout(r, 16));
+    setExporting(scale === 1 ? '1x' : '2x');
+    await new Promise<void>((r) => setTimeout(r, 16)); // yield to paint spinner
 
     try {
       const w = sourceImage.width  * scale;
       const h = sourceImage.height * scale;
 
-      // Scale source pixels
       const srcCanvas = document.createElement('canvas');
       srcCanvas.width = w; srcCanvas.height = h;
       srcCanvas.getContext('2d')!.drawImage(sourceImage, 0, 0, w, h);
-      const pixelBuffer = srcCanvas
-        .getContext('2d')!
-        .getImageData(0, 0, w, h)
-        .data.buffer.slice(0);
+
+      const pixelBuffer = srcCanvas.getContext('2d')!
+        .getImageData(0, 0, w, h).data.buffer.slice(0);
       const pixels = new Uint8ClampedArray(pixelBuffer);
 
-      // Render into an OffscreenCanvas (off the main thread would need a dedicated
-      // worker message, so we use the synchronous core directly here — the export
-      // path is a one-shot, not the preview loop)
       const dst = document.createElement('canvas');
       dst.width = w; dst.height = h;
       const dstCtx = dst.getContext('2d')!;
 
-      // Background
       if (bgMode === 'white') {
         dstCtx.fillStyle = '#ffffff';
         dstCtx.fillRect(0, 0, w, h);
       }
-      // globalCompositeOperation stays 'source-over' — transparent areas remain transparent
 
       renderPointillistCore(
         pixels, w, h,
@@ -235,90 +227,70 @@ function ExportTab() {
   const disabled = !sourceImage;
 
   return (
-    <div className="p-4 flex flex-col gap-5">
+    <div className="p-3 flex flex-col gap-5">
 
-      {/* Background toggle */}
+      {/* Background */}
       <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Background</span>
-        <div className="grid grid-cols-2 gap-1">
+        <SectionLabel>Background</SectionLabel>
+        <div className="grid grid-cols-2 gap-1 p-[3px] bg-white/[0.04] rounded-lg border border-white/[0.06]">
           {(['white', 'transparent'] as BgMode[]).map((m) => (
             <button
               key={m}
               onClick={() => setBgMode(m)}
-              className={`py-2 rounded-lg text-[11px] font-medium transition-all flex items-center justify-center gap-1.5 ${
+              className={`py-1.5 rounded-md text-[10px] font-semibold transition-all duration-150 flex items-center justify-center gap-1.5 ${
                 bgMode === m
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-zinc-900 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-200'
               }`}
             >
               {m === 'white' ? (
-                <>
-                  <span className="w-3 h-3 rounded-sm bg-white border border-zinc-500 inline-block" />
-                  White
-                </>
+                <><span className="w-2.5 h-2.5 rounded-sm bg-white border border-zinc-400/60 inline-block flex-shrink-0" />White</>
               ) : (
-                <>
-                  <span className="w-3 h-3 rounded-sm border border-dashed border-zinc-400 inline-block" />
-                  Alpha
-                </>
+                <><span className="w-2.5 h-2.5 rounded-sm border border-dashed border-zinc-400/60 inline-block flex-shrink-0" />Alpha</>
               )}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Export buttons */}
+      {/* Buttons */}
       <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Download PNG</span>
+        <SectionLabel>Download PNG</SectionLabel>
 
         {/* 1× */}
-        <button
-          onClick={() => runExport(1)}
+        <ExportButton
+          label="1×"
+          dims={sourceImage ? `${sourceImage.width}×${sourceImage.height}` : null}
+          loading={exporting === '1x'}
           disabled={disabled || exporting !== null}
-          className="w-full py-2.5 rounded-xl text-xs font-semibold transition-all duration-150
-            bg-gradient-to-r from-indigo-600 to-purple-600
-            hover:from-indigo-500 hover:to-purple-500
-            disabled:opacity-30 disabled:cursor-not-allowed
-            text-white shadow-lg shadow-indigo-900/40 flex items-center justify-center gap-2"
-        >
-          {exporting === '1x' ? (
-            <><Spinner />Exporting…</>
-          ) : (
-            <>↓ 1× PNG{sourceImage && <span className="opacity-60 font-normal">{' '}({sourceImage.width}×{sourceImage.height})</span>}</>
-          )}
-        </button>
+          primary
+          onClick={() => runExport(1)}
+        />
 
         {/* 2× */}
-        <button
-          onClick={() => runExport(2)}
+        <ExportButton
+          label="2×"
+          dims={sourceImage ? `${sourceImage.width * 2}×${sourceImage.height * 2}` : null}
+          loading={exporting === '2x'}
           disabled={disabled || exporting !== null}
-          className="w-full py-2.5 rounded-xl text-xs font-semibold transition-all duration-150
-            bg-zinc-800 hover:bg-zinc-700
-            disabled:opacity-30 disabled:cursor-not-allowed
-            text-zinc-200 flex items-center justify-center gap-2"
-        >
-          {exporting === '2x' ? (
-            <><Spinner />Exporting…</>
-          ) : (
-            <>↓ 2× PNG{sourceImage && <span className="opacity-50 font-normal">{' '}({sourceImage.width * 2}×{sourceImage.height * 2})</span>}</>
-          )}
-        </button>
+          onClick={() => runExport(2)}
+        />
 
-        <p className="text-[10px] text-zinc-700 text-center mt-0.5">
-          Rendered fresh at export size
+        <p className="text-[10px] text-zinc-700 text-center">
+          Re-rendered at export size
         </p>
       </div>
 
-      {/* Settings summary */}
+      {/* Summary */}
       {sourceImage && (
-        <div className="border-t border-white/5 pt-4 flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-1">Summary</span>
+        <div className="border-t border-white/[0.05] pt-4 flex flex-col gap-2">
+          <SectionLabel>Settings</SectionLabel>
           {[
-            ['Mode', settings.colorMode],
-            ['Dot size', `${settings.dotSize}px`],
-            ['Density', `${settings.density}%`],
-            ['Randomness', `${settings.randomness}%`],
-            ['Edge sens.', `${settings.edgeSensitivity}%`],
+            ['Mode',     settings.colorMode],
+            ['Dot',      `${settings.dotSize}px`],
+            ['Density',  `${settings.density}%`],
+            ['Random',   `${settings.randomness}%`],
+            ['Edge',     `${settings.edgeSensitivity}%`],
           ].map(([k, v]) => (
             <div key={k} className="flex items-center justify-between">
               <span className="text-[10px] text-zinc-600">{k}</span>
@@ -331,11 +303,49 @@ function ExportTab() {
   );
 }
 
+// ─── Shared primitives ────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[9px] font-bold tracking-[0.12em] uppercase text-zinc-600 px-1 mb-0.5">{children}</p>
+  );
+}
+
+function ExportButton({ label, dims, loading, disabled, primary, onClick }: {
+  label: string; dims: string | null; loading: boolean;
+  disabled: boolean; primary?: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-150 flex items-center justify-center gap-2
+        disabled:opacity-30 disabled:cursor-not-allowed ${
+        primary
+          ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-md shadow-indigo-900/40'
+          : 'bg-white/[0.06] hover:bg-white/[0.10] text-zinc-200 border border-white/[0.06]'
+      }`}
+    >
+      {loading ? (
+        <>
+          <Spinner />
+          <span>Exporting…</span>
+        </>
+      ) : (
+        <>
+          <span>↓ {label} PNG</span>
+          {dims && <span className="opacity-40 font-normal text-[9px] tabular-nums">{dims}</span>}
+        </>
+      )}
+    </button>
+  );
+}
+
 function Spinner() {
   return (
-    <svg className="animate-spin w-3 h-3 text-white" viewBox="0 0 24 24" fill="none">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+    <svg className="animate-spin w-3 h-3 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
+      <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"/>
     </svg>
   );
 }

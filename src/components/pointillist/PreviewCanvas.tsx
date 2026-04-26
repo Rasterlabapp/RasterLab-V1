@@ -4,43 +4,37 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import { usePointillistStore } from '@/store/pointillist-store';
 import { usePointillistRenderer } from '@/hooks/usePointillistRenderer';
 
-// Max source dimension — large enough for print-quality output
 const MAX_PX = 3000;
 
 export function PreviewCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rendering, setRendering] = useState(false);
+  const [dragOver, setDragOver]   = useState(false);
 
-  const {
-    settings, sourceImage,
-    setSourceImage, setRenderTime,
-  } = usePointillistStore();
+  const { settings, sourceImage, setSourceImage, setRenderTime } = usePointillistStore();
 
-  // ── Worker-backed renderer hook ─────────────────────────────────────────
+  // ── Worker-backed renderer ──────────────────────────────────────────────────
   const { scheduleRender, supportsWorker } = usePointillistRenderer(canvasRef, {
     onRenderStart: () => setRendering(true),
     onRenderDone:  (ms) => { setRenderTime(ms); setRendering(false); },
     onRenderError: () => setRendering(false),
   });
 
-  // ── Re-render when settings change (debounced 250 ms) ─────────────────
-  // Using a ref for sourceImage avoids stale closures while the store updates.
   const sourceImageRef = useRef(sourceImage);
   useEffect(() => { sourceImageRef.current = sourceImage; }, [sourceImage]);
 
   useEffect(() => {
-    scheduleRender(sourceImageRef.current, settings, false /* debounced */);
+    scheduleRender(sourceImageRef.current, settings, false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings]); // only settings in deps — scheduleRender is stable
+  }, [settings]);
 
-  // ── Re-render immediately when a new image is loaded ───────────────────
   useEffect(() => {
     if (!sourceImage) return;
-    scheduleRender(sourceImage, settings, true /* immediate */);
+    scheduleRender(sourceImage, settings, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceImage]);
 
-  // ── File loading ────────────────────────────────────────────────────────
+  // ── File loading ────────────────────────────────────────────────────────────
   const loadFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
@@ -50,7 +44,6 @@ export function PreviewCanvas() {
         let { width, height } = img;
         if (width > MAX_PX)  { height = Math.round(height * MAX_PX / width);  width = MAX_PX; }
         if (height > MAX_PX) { width  = Math.round(width  * MAX_PX / height); height = MAX_PX; }
-
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
@@ -63,63 +56,115 @@ export function PreviewCanvas() {
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) loadFile(file);
   };
 
   return (
-    <main className="flex-1 flex flex-col bg-[#0d0d0f] overflow-hidden relative">
+    <main className="flex-1 flex flex-col bg-[#0a0a0c] overflow-hidden relative min-w-0">
 
-      {/* Drop zone (shown when no image) */}
+      {/* ── Empty state ──────────────────────────────────────────────────────── */}
       {!sourceImage && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 z-10">
-          <label
-            onDrop={onDrop}
-            onDragOver={(e) => e.preventDefault()}
-            className="group flex flex-col items-center gap-4 cursor-pointer"
-          >
-            <div className="w-28 h-28 rounded-3xl border-2 border-dashed border-zinc-700 group-hover:border-indigo-500 transition-colors flex flex-col items-center justify-center gap-2 bg-zinc-900/40 group-hover:bg-zinc-900/80">
-              <span className="text-3xl text-zinc-500 group-hover:text-indigo-400 transition-colors">⬤</span>
-              <span className="text-xs text-zinc-600 group-hover:text-zinc-400">upload</span>
+        <label
+          onDrop={onDrop}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center cursor-pointer select-none"
+        >
+          {/* Radial ambient glow */}
+          <div className="absolute inset-0 pointer-events-none"
+            style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(99,102,241,0.06) 0%, transparent 70%)' }} />
+
+          {/* Drop card */}
+          <div className={`relative flex flex-col items-center gap-6 px-10 py-10 rounded-2xl border transition-all duration-300 ${
+            dragOver
+              ? 'border-indigo-500/60 bg-indigo-500/[0.06] shadow-xl shadow-indigo-900/20'
+              : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.04]'
+          }`}>
+
+            {/* Icon */}
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+              dragOver
+                ? 'bg-indigo-500/20 border border-indigo-500/40 shadow-lg shadow-indigo-900/30'
+                : 'bg-white/[0.04] border border-white/[0.08]'
+            }`}>
+              <svg
+                viewBox="0 0 32 32"
+                className={`w-7 h-7 transition-colors duration-300 ${dragOver ? 'text-indigo-400' : 'text-zinc-500'}`}
+                fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <rect x="4" y="4" width="24" height="24" rx="4" />
+                <circle cx="11" cy="11" r="2.5" />
+                <path d="M4 21l7-7 5 5 4-4 8 8" />
+              </svg>
             </div>
-            <div className="text-center">
-              <p className="text-sm font-semibold text-zinc-300">Drop an image to begin</p>
-              <p className="text-xs text-zinc-600 mt-1">
-                JPG · PNG · WebP — up to {MAX_PX}px
-                {supportsWorker && <span className="ml-1 text-indigo-500">⚡ GPU worker</span>}
+
+            {/* Text */}
+            <div className="text-center flex flex-col gap-1.5">
+              <p className={`text-sm font-semibold transition-colors duration-200 ${dragOver ? 'text-indigo-300' : 'text-zinc-200'}`}>
+                {dragOver ? 'Release to load image' : 'Drop an image here'}
+              </p>
+              <p className="text-[11px] text-zinc-600">
+                or <span className="text-zinc-400 underline underline-offset-2 decoration-zinc-600">browse files</span>
+                {' '}· JPG, PNG, WebP up to {MAX_PX}px
               </p>
             </div>
-            <input
-              type="file" accept="image/*" className="hidden"
-              onChange={(e) => { if (e.target.files?.[0]) loadFile(e.target.files[0]); }}
-            />
-          </label>
-        </div>
+
+            {/* Worker badge */}
+            {supportsWorker && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/[0.08] border border-indigo-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                <span className="text-[10px] font-medium text-indigo-400">Worker renderer active</span>
+              </div>
+            )}
+          </div>
+
+          {/* Keyboard hint */}
+          <p className="mt-5 text-[10px] text-zinc-700">Ctrl+V to paste from clipboard</p>
+
+          <input
+            type="file" accept="image/*" className="hidden"
+            onChange={(e) => { if (e.target.files?.[0]) loadFile(e.target.files[0]); }}
+          />
+        </label>
       )}
 
-      {/* Canvas area */}
-      <div className="flex-1 flex items-center justify-center p-6 overflow-auto">
-        <div className="relative" style={{ display: sourceImage ? 'block' : 'none' }}>
+      {/* ── Canvas area ──────────────────────────────────────────────────────── */}
+      <div
+        onDrop={sourceImage ? onDrop : undefined}
+        onDragOver={sourceImage ? (e) => e.preventDefault() : undefined}
+        className="flex-1 flex items-center justify-center p-6 overflow-auto"
+      >
+        <div
+          className="relative transition-opacity duration-300"
+          style={{ display: sourceImage ? 'block' : 'none' }}
+        >
           <canvas
             ref={canvasRef}
-            className="block max-w-full max-h-full rounded-lg shadow-2xl shadow-black/60"
+            className="block max-w-full max-h-full rounded-xl shadow-2xl shadow-black/70"
             style={{ imageRendering: 'auto' }}
           />
 
-          {/* Rendering indicator */}
-          {rendering && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/25 rounded-lg pointer-events-none">
-              <div className="flex items-center gap-2 bg-zinc-900/90 px-3 py-1.5 rounded-full border border-white/10">
-                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-xs text-zinc-300">
-                  {supportsWorker ? 'Worker rendering…' : 'Rendering…'}
-                </span>
-              </div>
+          {/* Rendering overlay */}
+          <div className={`absolute inset-0 flex items-center justify-center rounded-xl transition-opacity duration-200 pointer-events-none ${
+            rendering ? 'opacity-100' : 'opacity-0'
+          }`}>
+            <div className="absolute inset-0 bg-black/30 rounded-xl" />
+            <div className="relative flex items-center gap-2 bg-[#0f0f12]/90 backdrop-blur-sm px-3.5 py-2 rounded-full border border-white/[0.08] shadow-xl">
+              <svg className="animate-spin w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
+                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"/>
+              </svg>
+              <span className="text-[11px] font-medium text-zinc-300">
+                {supportsWorker ? 'Rendering…' : 'Rendering…'}
+              </span>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
+      {/* ── Status bar ───────────────────────────────────────────────────────── */}
       {sourceImage && <StatusBar supportsWorker={supportsWorker} />}
     </main>
   );
@@ -128,23 +173,32 @@ export function PreviewCanvas() {
 function StatusBar({ supportsWorker }: { supportsWorker: boolean }) {
   const { renderTimeMs, sourceImage, settings } = usePointillistStore();
   return (
-    <div className="h-8 border-t border-white/5 flex items-center px-5 gap-4 text-[11px] text-zinc-600 bg-[#0d0d0f] flex-shrink-0">
+    <div className="h-8 border-t border-white/[0.05] flex items-center px-4 gap-3 text-[10px] text-zinc-600 bg-[#0f0f12] flex-shrink-0 select-none">
       {sourceImage && (
-        <span className="text-zinc-500">{sourceImage.width} × {sourceImage.height}px</span>
+        <span className="text-zinc-500 tabular-nums">{sourceImage.width} × {sourceImage.height}px</span>
       )}
-      <span>·</span>
-      <span>{settings.colorMode}</span>
-      <span>·</span>
-      <span>dot {settings.dotSize}px · density {settings.density}%</span>
+      <Dot />
+      <span className="capitalize">{settings.colorMode}</span>
+      <Dot />
+      <span>dot {settings.dotSize}px</span>
+      <Dot />
+      <span>density {settings.density}%</span>
       {supportsWorker && (
         <>
-          <span>·</span>
-          <span className="text-indigo-500/70">⚡ worker</span>
+          <Dot />
+          <span className="flex items-center gap-1 text-indigo-500/60">
+            <span className="w-1 h-1 rounded-full bg-indigo-500/60 inline-block" />
+            worker
+          </span>
         </>
       )}
-      <span className="ml-auto tabular-nums">
-        {renderTimeMs > 0 ? `${renderTimeMs}ms` : '—'}
+      <span className="ml-auto tabular-nums text-zinc-600">
+        {renderTimeMs > 0 ? `${renderTimeMs} ms` : '—'}
       </span>
     </div>
   );
+}
+
+function Dot() {
+  return <span className="w-[3px] h-[3px] rounded-full bg-white/10 flex-shrink-0 inline-block" />;
 }
