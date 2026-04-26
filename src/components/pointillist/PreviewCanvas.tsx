@@ -134,16 +134,17 @@ export function PreviewCanvas() {
       <div
         onDrop={sourceImage ? onDrop : undefined}
         onDragOver={sourceImage ? (e) => e.preventDefault() : undefined}
-        className="flex-1 flex items-center justify-center p-6 overflow-auto"
+        className="flex-1 min-h-0 flex items-center justify-center p-6 overflow-hidden"
       >
+        {/* Wrapper carries explicit h-full/w-full so max-h/max-w on canvas work */}
         <div
-          className="relative transition-opacity duration-300"
-          style={{ display: sourceImage ? 'block' : 'none' }}
+          className="relative h-full w-full flex items-center justify-center"
+          style={{ display: sourceImage ? 'flex' : 'none' }}
         >
           <canvas
             ref={canvasRef}
-            className="block max-w-full max-h-full rounded-xl shadow-2xl shadow-black/70"
-            style={{ imageRendering: 'auto' }}
+            className="rounded-xl shadow-2xl shadow-black/70"
+            style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', imageRendering: 'auto' }}
           />
 
           {/* Rendering overlay */}

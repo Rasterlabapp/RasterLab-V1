@@ -144,7 +144,7 @@ function satMean(sat: Float64Array, w: number, x1: number, y1: number, x2: numbe
   const n = (x2 - x1 + 1) * (y2 - y1 + 1);
   const i = y2 * w + x2;
   const sum = sat[i]
-    - (x1 > 0 ? sat[i - x1] : 0)
+    - (x1 > 0 ? sat[y2 * w + (x1 - 1)] : 0)
     - (y1 > 0 ? sat[(y1 - 1) * w + x2] : 0)
     + (x1 > 0 && y1 > 0 ? sat[(y1 - 1) * w + (x1 - 1)] : 0);
   return sum / n;
