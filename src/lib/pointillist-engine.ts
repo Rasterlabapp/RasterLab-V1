@@ -368,26 +368,26 @@ function bucketToRGB(bucket: number): [number, number, number] {
   ];
 }
 
-// ─── Core render ──────────────────────────────────────────────────────────────
-
-export function renderPointillist(
-  src: HTMLCanvasElement,
-  dst: HTMLCanvasElement,
+// ─── Core render (DOM-free — works in Worker + main thread) ──────────────────
+/**
+ * renderPointillistCore accepts raw RGBA pixels and any canvas 2D context
+ * (HTMLCanvasElement ctx OR OffscreenCanvas ctx). This makes it callable
+ * from a Web Worker using OffscreenCanvas without modification.
+ *
+ * Callers are responsible for:
+ *   1. Providing a copy of pixels (the function mutates them for BC/blur)
+ *   2. Setting dst context dimensions before calling
+ */
+export function renderPointillistCore(
+  pixels: Uint8ClampedArray,  // mutable copy — will be modified in-place
+  sw: number,
+  sh: number,
   s: PointillistSettings,
+  dstCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
 ): number {
   const t0 = performance.now();
-  const sw = src.width, sh = src.height;
-  dst.width = sw; dst.height = sh;
 
-  // ── 1. Prepare source pixels ──────────────────────────────────────────────
-  const wc = document.createElement('canvas');
-  wc.width = sw; wc.height = sh;
-  const wCtx = wc.getContext('2d')!;
-  wCtx.drawImage(src, 0, 0);
-
-  const imgData = wCtx.getImageData(0, 0, sw, sh);
-  const pixels = imgData.data;
-
+  // ── 1. BC + blur on raw pixels ────────────────────────────────────────────
   if (s.brightness !== 0 || s.contrast !== 0) {
     for (let i = 0; i < pixels.length; i += 4) {
       pixels[i]     = applyBC(pixels[i],     s.brightness, s.contrast);
@@ -395,7 +395,6 @@ export function renderPointillist(
       pixels[i + 2] = applyBC(pixels[i + 2], s.brightness, s.contrast);
     }
   }
-
   const blurPx = Math.round((s.smoothing / 100) * 4);
   if (blurPx >= 1) fastBoxBlur(pixels, sw, sh, blurPx);
 
@@ -556,7 +555,6 @@ export function renderPointillist(
   }
 
   // ── 6. Draw ───────────────────────────────────────────────────────────────
-  const dstCtx = dst.getContext('2d')!;
   dstCtx.fillStyle = s.backgroundColor;
   dstCtx.fillRect(0, 0, sw, sh);
 
@@ -629,6 +627,34 @@ export function renderPointillist(
   }
 
   return Math.round(performance.now() - t0);
+}
+
+// ─── Main-thread convenience wrapper ─────────────────────────────────────────
+/**
+ * Legacy API — extracts pixels from src canvas, runs core engine,
+ * draws result to dst canvas. Used for fallback (no Worker support).
+ */
+export function renderPointillist(
+  src: HTMLCanvasElement,
+  dst: HTMLCanvasElement,
+  s: PointillistSettings,
+): number {
+  const pixels = extractPixels(src);
+  dst.width = src.width;
+  dst.height = src.height;
+  const ctx = dst.getContext('2d')!;
+  return renderPointillistCore(pixels, src.width, src.height, s, ctx);
+}
+
+/**
+ * Extract a mutable copy of RGBA pixels from an HTMLCanvasElement.
+ * Returns a new Uint8ClampedArray (safe to transfer to a Worker).
+ */
+export function extractPixels(canvas: HTMLCanvasElement): Uint8ClampedArray {
+  const ctx = canvas.getContext('2d')!;
+  return new Uint8ClampedArray(
+    ctx.getImageData(0, 0, canvas.width, canvas.height).data.buffer,
+  );
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
