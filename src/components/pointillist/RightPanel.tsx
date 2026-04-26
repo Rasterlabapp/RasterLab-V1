@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { usePointillistStore } from '@/store/pointillist-store';
-import { renderPointillist } from '@/lib/pointillist-engine';
+import { renderPointillistCore } from '@/lib/pointillist-engine';
 
 type Tab = 'presets' | 'export';
 
@@ -165,86 +165,151 @@ function PresetCard({
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
+type BgMode = 'white' | 'transparent';
+
 function ExportTab() {
   const { sourceImage, settings } = usePointillistStore();
-  const [scale, setScale] = useState(1);
-  const [exporting, setExporting] = useState(false);
+  const [bgMode, setBgMode] = useState<BgMode>('white');
+  const [exporting, setExporting] = useState<null | '1x' | '2x'>(null);
 
-  const exportPNG = async () => {
+  const runExport = async (scale: 1 | 2) => {
     if (!sourceImage || exporting) return;
-    setExporting(true);
+    const key = scale === 1 ? '1x' : '2x';
+    setExporting(key);
 
-    // Render at higher resolution if scale > 1
-    const scaledSrc = document.createElement('canvas');
-    scaledSrc.width = sourceImage.width * scale;
-    scaledSrc.height = sourceImage.height * scale;
-    scaledSrc.getContext('2d')!.drawImage(sourceImage, 0, 0, scaledSrc.width, scaledSrc.height);
+    // Yield to let the UI update (spinner visible) before heavy work
+    await new Promise<void>((r) => setTimeout(r, 16));
 
-    const dst = document.createElement('canvas');
-    await new Promise<void>((r) => setTimeout(r, 0)); // yield
-    renderPointillist(scaledSrc, dst, { ...settings, dotSize: settings.dotSize * scale });
+    try {
+      const w = sourceImage.width  * scale;
+      const h = sourceImage.height * scale;
 
-    dst.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pointillist-${settings.colorMode}-${Date.now()}.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setExporting(false);
-    }, 'image/png');
+      // Scale source pixels
+      const srcCanvas = document.createElement('canvas');
+      srcCanvas.width = w; srcCanvas.height = h;
+      srcCanvas.getContext('2d')!.drawImage(sourceImage, 0, 0, w, h);
+      const pixelBuffer = srcCanvas
+        .getContext('2d')!
+        .getImageData(0, 0, w, h)
+        .data.buffer.slice(0);
+      const pixels = new Uint8ClampedArray(pixelBuffer);
+
+      // Render into an OffscreenCanvas (off the main thread would need a dedicated
+      // worker message, so we use the synchronous core directly here — the export
+      // path is a one-shot, not the preview loop)
+      const dst = document.createElement('canvas');
+      dst.width = w; dst.height = h;
+      const dstCtx = dst.getContext('2d')!;
+
+      // Background
+      if (bgMode === 'white') {
+        dstCtx.fillStyle = '#ffffff';
+        dstCtx.fillRect(0, 0, w, h);
+      }
+      // globalCompositeOperation stays 'source-over' — transparent areas remain transparent
+
+      renderPointillistCore(
+        pixels, w, h,
+        { ...settings, dotSize: settings.dotSize * scale, backgroundColor: bgMode === 'white' ? '#ffffff' : 'transparent' },
+        dstCtx,
+      );
+
+      await new Promise<void>((resolve) => {
+        dst.toBlob((blob) => {
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `pointillist-${settings.colorMode}-${scale}x-${bgMode}-${Date.now()}.png`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }
+          resolve();
+        }, 'image/png');
+      });
+    } finally {
+      setExporting(null);
+    }
   };
 
   const disabled = !sourceImage;
 
   return (
-    <div className="p-4 flex flex-col gap-4">
-      <div className="flex flex-col gap-3">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Resolution</span>
-        <div className="grid grid-cols-3 gap-1">
-          {[1, 2, 3].map((s) => (
+    <div className="p-4 flex flex-col gap-5">
+
+      {/* Background toggle */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Background</span>
+        <div className="grid grid-cols-2 gap-1">
+          {(['white', 'transparent'] as BgMode[]).map((m) => (
             <button
-              key={s}
-              onClick={() => setScale(s)}
-              className={`py-2 rounded-lg text-xs font-medium transition-all ${
-                scale === s
+              key={m}
+              onClick={() => setBgMode(m)}
+              className={`py-2 rounded-lg text-[11px] font-medium transition-all flex items-center justify-center gap-1.5 ${
+                bgMode === m
                   ? 'bg-indigo-600 text-white'
                   : 'bg-zinc-900 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
               }`}
             >
-              {s}×
+              {m === 'white' ? (
+                <>
+                  <span className="w-3 h-3 rounded-sm bg-white border border-zinc-500 inline-block" />
+                  White
+                </>
+              ) : (
+                <>
+                  <span className="w-3 h-3 rounded-sm border border-dashed border-zinc-400 inline-block" />
+                  Alpha
+                </>
+              )}
             </button>
           ))}
         </div>
-        {sourceImage && (
-          <p className="text-[10px] text-zinc-600 text-center">
-            {sourceImage.width * scale} × {sourceImage.height * scale}px
-          </p>
-        )}
       </div>
 
-      <div className="border-t border-white/5 pt-4 flex flex-col gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Format</span>
+      {/* Export buttons */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Download PNG</span>
 
+        {/* 1× */}
         <button
-          onClick={exportPNG}
-          disabled={disabled || exporting}
+          onClick={() => runExport(1)}
+          disabled={disabled || exporting !== null}
           className="w-full py-2.5 rounded-xl text-xs font-semibold transition-all duration-150
             bg-gradient-to-r from-indigo-600 to-purple-600
             hover:from-indigo-500 hover:to-purple-500
             disabled:opacity-30 disabled:cursor-not-allowed
-            text-white shadow-lg shadow-indigo-900/40"
+            text-white shadow-lg shadow-indigo-900/40 flex items-center justify-center gap-2"
         >
-          {exporting ? 'Exporting…' : '↓ Export PNG'}
+          {exporting === '1x' ? (
+            <><Spinner />Exporting…</>
+          ) : (
+            <>↓ 1× PNG{sourceImage && <span className="opacity-60 font-normal">{' '}({sourceImage.width}×{sourceImage.height})</span>}</>
+          )}
         </button>
 
-        <p className="text-[10px] text-zinc-700 text-center mt-1">
-          Rendered fresh at export resolution
+        {/* 2× */}
+        <button
+          onClick={() => runExport(2)}
+          disabled={disabled || exporting !== null}
+          className="w-full py-2.5 rounded-xl text-xs font-semibold transition-all duration-150
+            bg-zinc-800 hover:bg-zinc-700
+            disabled:opacity-30 disabled:cursor-not-allowed
+            text-zinc-200 flex items-center justify-center gap-2"
+        >
+          {exporting === '2x' ? (
+            <><Spinner />Exporting…</>
+          ) : (
+            <>↓ 2× PNG{sourceImage && <span className="opacity-50 font-normal">{' '}({sourceImage.width * 2}×{sourceImage.height * 2})</span>}</>
+          )}
+        </button>
+
+        <p className="text-[10px] text-zinc-700 text-center mt-0.5">
+          Rendered fresh at export size
         </p>
       </div>
 
-      {/* Export info */}
+      {/* Settings summary */}
       {sourceImage && (
         <div className="border-t border-white/5 pt-4 flex flex-col gap-1.5">
           <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-1">Summary</span>
@@ -254,7 +319,6 @@ function ExportTab() {
             ['Density', `${settings.density}%`],
             ['Randomness', `${settings.randomness}%`],
             ['Edge sens.', `${settings.edgeSensitivity}%`],
-            ['Background', settings.backgroundColor],
           ].map(([k, v]) => (
             <div key={k} className="flex items-center justify-between">
               <span className="text-[10px] text-zinc-600">{k}</span>
@@ -264,5 +328,14 @@ function ExportTab() {
         </div>
       )}
     </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="animate-spin w-3 h-3 text-white" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+    </svg>
   );
 }
