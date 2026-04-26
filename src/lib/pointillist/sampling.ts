@@ -1,25 +1,33 @@
 /**
  * sampling.ts
  *
- * Generates dot positions using Bridson's Fast Poisson Disk Sampling
- * (Robert Bridson, 2007) in analysis-resolution space, then maps them
- * to full image-resolution coordinates.
+ * Generates dot positions using an adaptive variant of Bridson's Fast Poisson
+ * Disk Sampling (Robert Bridson, 2007).
  *
- * Two-pass strategy:
- *   Pass 0 — Structural: larger Poisson radius → fewer, bigger dots that
- *             form the tonal skeleton of the image.
- *   Pass 1 — Edge detail: tighter Poisson radius, restricted to edge zones →
- *             small, dense dots that sharpen contours and fine texture.
+ * ── Key improvement: adaptive minimum distance ────────────────────────────────
+ * Each candidate point q is assigned a local Poisson radius r(q) derived from
+ * the image luminance at that position:
  *
- * Density adaptation:
- *   Each candidate point is kept/skipped based on local luminance (dark areas
- *   keep more dots) and a tunable density setting.  The dot draw-radius is also
- *   set per-point — dark → large, light → small.
+ *   dark  (lum ≈ 0)  →  r_min   (tight packing, many dots)
+ *   light (lum ≈ 1)  →  r_max   (loose packing, few dots)
  *
- * Randomness:
- *   After Poisson placement (which already has organic jitter built in),
- *   an optional extra position jitter is applied proportional to the spacing,
- *   controlled by settings.randomness.
+ * The separation check between an existing point s and a candidate q uses the
+ * symmetric variable-radius condition:
+ *
+ *   dist(q, s)  ≥  (r(q) + r(s)) / 2
+ *
+ * This is the correct formulation for a polydisperse Poisson disk process —
+ * it avoids both the under-packing of always using min(r_q, r_s) and the
+ * over-packing of using max(r_q, r_s).
+ *
+ * ── Two-pass strategy ─────────────────────────────────────────────────────────
+ * Pass 0 — Structural: adaptive radius → tonal density variation.
+ * Pass 1 — Edge detail: tighter fixed radius in edge zones → fine contours.
+ *
+ * ── Draw radius ───────────────────────────────────────────────────────────────
+ * Separate from the Poisson spacing radius.  Dark pixels → r close to dotSize;
+ * light pixels → r as small as 0.20 × dotSize.  This doubles the tonal
+ * impression: spacing AND size both respond to image luminance.
  */
 
 import type { PointillistSettings } from './types';
@@ -31,18 +39,19 @@ export interface Dot {
   x:    number;   // full-resolution x (image pixels)
   y:    number;   // full-resolution y
   r:    number;   // draw radius (image pixels)
-  ax:   number;   // analysis-space x (for SAT color lookup)
+  ax:   number;   // analysis-space x (for SAT colour lookup)
   ay:   number;   // analysis-space y
-  pass: 0 | 1;    // which rendering pass
+  pass: 0 | 1;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SQRT2    = Math.sqrt(2);
-const TWO_PI   = Math.PI * 2;
-const MAX_DOTS = 90_000; // hard cap to protect against very small dotSize/high density
+const SQRT2  = Math.sqrt(2);
+const TWO_PI = Math.PI * 2;
+/** Hard cap — protects the worker from extreme settings (tiny dotSize + max density). */
+const MAX_DOTS = 90_000;
 
-// ─── Deterministic LCG RNG ────────────────────────────────────────────────────
+// ─── Deterministic LCG ───────────────────────────────────────────────────────
 
 function makeLCG(seed: number): () => number {
   let s = (seed ^ 0xdeadbeef) >>> 0;
@@ -52,65 +61,156 @@ function makeLCG(seed: number): () => number {
   };
 }
 
-// ─── Bridson's Fast Poisson Disk Sampling ─────────────────────────────────────
+// ─── Adaptive Poisson disk sampling ──────────────────────────────────────────
 /**
- * Returns up to `maxPts` evenly distributed candidate points in [0,w) × [0,h).
+ * Bridson's algorithm with per-point variable minimum distance.
  *
- * `minR`    – minimum distance between any two points
- * `rng`     – seeded random source (deterministic)
- * `keepFn`  – optional per-candidate filter (return false = skip)
+ * `getRadius(x, y)` — returns the local Poisson radius at that position.
+ *   The grid cell size is keyed to `globalMinR` (smallest possible radius),
+ *   which guarantees correctness regardless of how large `getRadius` can get.
+ *
+ * `globalMaxR` — largest value `getRadius` will ever return.
+ *   Used to pre-compute the grid neighbourhood search radius so we never
+ *   miss a conflicting point.
  */
-function bridson(
-  w:       number,
-  h:       number,
-  minR:    number,
-  rng:     () => number,
-  maxPts:  number,
-  keepFn?: (x: number, y: number) => boolean,
+function adaptiveBridson(
+  w:          number,
+  h:          number,
+  getRadius:  (x: number, y: number) => number,
+  globalMinR: number,
+  globalMaxR: number,
+  rng:        () => number,
+  maxPts:     number,
+): Array<{ x: number; y: number; localR: number }> {
+  const k        = 22;                    // candidate attempts per active point
+  const cellSize = globalMinR / SQRT2;    // ≤ 1 point per cell guaranteed
+  const cols     = Math.ceil(w / cellSize) + 1;
+  const rows     = Math.ceil(h / cellSize) + 1;
+
+  // Each cell stores the index of the point occupying it (-1 = empty)
+  const grid  = new Int32Array(cols * rows).fill(-1);
+  const pts:  Array<{ x: number; y: number; localR: number }> = [];
+  const localRs = new Float32Array(MAX_DOTS + 10); // pre-allocated radius store
+  const active: number[] = [];
+
+  // Grid neighbourhood to search: must cover the maximum possible check
+  // distance (r_q + r_s)/2 ≤ (globalMaxR + globalMaxR)/2 = globalMaxR
+  const checkCells = Math.ceil(globalMaxR / cellSize) + 1;
+
+  const addPt = (x: number, y: number, lr: number) => {
+    const idx    = pts.length;
+    localRs[idx] = lr;
+    pts.push({ x, y, localR: lr });
+    active.push(idx);
+    const ci = Math.floor(x / cellSize);
+    const cj = Math.floor(y / cellSize);
+    if (ci >= 0 && ci < cols && cj >= 0 && cj < rows) {
+      grid[cj * cols + ci] = idx;
+    }
+  };
+
+  // Seed
+  const sx = rng() * w, sy = rng() * h;
+  addPt(sx, sy, getRadius(sx, sy));
+
+  while (active.length > 0 && pts.length < maxPts) {
+    const ai = Math.floor(rng() * active.length);
+    const p  = pts[active[ai]];
+    let found = false;
+
+    for (let attempt = 0; attempt < k; attempt++) {
+      // Candidate in annulus [r_p, 2·r_p] around the active point
+      const angle = rng() * TWO_PI;
+      const dist  = p.localR * (1 + rng());
+      const cx    = p.x + Math.cos(angle) * dist;
+      const cy    = p.y + Math.sin(angle) * dist;
+
+      if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
+
+      const r_q = getRadius(cx, cy);
+      const ci  = Math.floor(cx / cellSize);
+      const cj  = Math.floor(cy / cellSize);
+      let valid = true;
+
+      // ── Neighbourhood check with symmetric variable-radius condition ───────
+      // Minimum allowed distance between q and any existing s:
+      //   (r_q + r_s) / 2
+      // We must search cells within checkCells to guarantee we find all
+      // conflicting points even when r_s >> cellSize.
+      outer:
+      for (let dj = -checkCells; dj <= checkCells; dj++) {
+        const nj = cj + dj;
+        if (nj < 0 || nj >= rows) continue;
+        for (let di = -checkCells; di <= checkCells; di++) {
+          const ni = ci + di;
+          if (ni < 0 || ni >= cols) continue;
+          const sid = grid[nj * cols + ni];
+          if (sid < 0) continue;
+          const s    = pts[sid];
+          const minD = (r_q + localRs[sid]) * 0.5;  // symmetric check
+          const dx   = cx - s.x, dy = cy - s.y;
+          if (dx * dx + dy * dy < minD * minD) { valid = false; break outer; }
+        }
+      }
+
+      if (valid) {
+        addPt(cx, cy, r_q);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      active[ai] = active[active.length - 1];
+      active.pop();
+    }
+  }
+
+  return pts;
+}
+
+// ─── Fixed-radius Bridson (used for edge-detail pass) ────────────────────────
+
+function fixedBridson(
+  w:      number,
+  h:      number,
+  minR:   number,
+  rng:    () => number,
+  maxPts: number,
 ): Array<{ x: number; y: number }> {
-  const k        = 22;                 // max attempts per active point
-  const cellSize = minR / SQRT2;       // guarantees ≤ 1 point per cell
+  const k        = 20;
+  const cellSize = minR / SQRT2;
   const cols     = Math.ceil(w / cellSize) + 1;
   const rows     = Math.ceil(h / cellSize) + 1;
   const grid     = new Int32Array(cols * rows).fill(-1);
   const pts: Array<{ x: number; y: number }> = [];
   const active: number[] = [];
-
-  // Cells to check: radius = ceil(minR / cellSize) + 1 = ceil(√2) + 1 = 3
-  // Fixed because we use a fixed minR here.
-  const chk = Math.ceil(minR / cellSize) + 1;
+  const chk = Math.ceil(minR / cellSize) + 1; // ≈ 3 for fixed radius
 
   const addPt = (x: number, y: number) => {
     const idx = pts.length;
     pts.push({ x, y });
     active.push(idx);
-    grid[Math.floor(y / cellSize) * cols + Math.floor(x / cellSize)] = idx;
+    const ci = Math.floor(x / cellSize), cj = Math.floor(y / cellSize);
+    if (ci >= 0 && ci < cols && cj >= 0 && cj < rows) grid[cj * cols + ci] = idx;
   };
 
-  // Seed with a random starting point
   addPt(rng() * w, rng() * h);
 
   while (active.length > 0 && pts.length < maxPts) {
-    // Pick a random active point
     const ai = Math.floor(rng() * active.length);
     const p  = pts[active[ai]];
-    let   found = false;
+    let found = false;
 
     for (let attempt = 0; attempt < k; attempt++) {
-      // Uniform random point in the annulus [minR, 2·minR]
       const angle = rng() * TWO_PI;
       const dist  = minR * (1 + rng());
-      const cx    = p.x + Math.cos(angle) * dist;
-      const cy    = p.y + Math.sin(angle) * dist;
-
+      const cx = p.x + Math.cos(angle) * dist;
+      const cy = p.y + Math.sin(angle) * dist;
       if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
-      if (keepFn && !keepFn(cx, cy)) continue;
 
-      // Check surrounding grid cells for conflicts
-      const ci = Math.floor(cx / cellSize);
-      const cj = Math.floor(cy / cellSize);
+      const ci = Math.floor(cx / cellSize), cj = Math.floor(cy / cellSize);
       let valid = true;
-
       outer:
       for (let dj = -chk; dj <= chk; dj++) {
         const nj = cj + dj;
@@ -120,24 +220,15 @@ function bridson(
           if (ni < 0 || ni >= cols) continue;
           const sid = grid[nj * cols + ni];
           if (sid < 0) continue;
-          const s  = pts[sid];
+          const s = pts[sid];
           const dx = cx - s.x, dy = cy - s.y;
           if (dx * dx + dy * dy < minR * minR) { valid = false; break outer; }
         }
       }
-
-      if (valid) {
-        addPt(cx, cy);
-        found = true;
-        break;
-      }
+      if (valid) { addPt(cx, cy); found = true; break; }
     }
 
-    if (!found) {
-      // Exhausted attempts — remove from active list (swap-and-pop)
-      active[ai] = active[active.length - 1];
-      active.pop();
-    }
+    if (!found) { active[ai] = active[active.length - 1]; active.pop(); }
   }
 
   return pts;
@@ -145,11 +236,6 @@ function bridson(
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-/**
- * Generates the full set of dots for both rendering passes.
- * All computation is in analysis space; positions are mapped back to
- * full image resolution before returning.
- */
 export function generateDots(
   sw:       number,
   sh:       number,
@@ -157,122 +243,100 @@ export function generateDots(
   settings: PointillistSettings,
 ): Dot[] {
   const { lum, edges, aw, ah } = maps;
-  const densityT = settings.density       / 100;
+  const densityT = settings.density        / 100;
   const edgeW    = settings.edgeSensitivity / 100;
-  const jitterT  = settings.randomness    / 100;
+  const jitterT  = settings.randomness     / 100;
   const dotSize  = settings.dotSize;
 
-  // Seed RNG deterministically so same image + settings → same output
+  // Deterministic seed → same image + settings = same output
   const seed = ((sw * 73856093) ^ (sh * 19349663) ^ (dotSize * 7919) ^
                 (settings.density * 1009) ^ (settings.randomness * 503)) | 0;
   const rng  = makeLCG(seed);
 
-  // How many analysis pixels per image pixel
-  const imgToA = aw / sw;   // < 1 when analysis is downscaled
-  const aToImg = sw / aw;   // > 1 — multiply to go analysis → image
+  const imgToA = aw / sw;  // analysis pixels per image pixel
+  const aToImg = sw / aw;  // image pixels per analysis pixel
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
+  // ── Luminance helpers ──────────────────────────────────────────────────────
+  const lumAt = (ax: number, ay: number) =>
+    lum[Math.max(0, Math.min(ah - 1, Math.round(ay))) * aw +
+        Math.max(0, Math.min(aw - 1, Math.round(ax)))];
 
-  const lumAt = (ax: number, ay: number): number => {
-    const xi = Math.max(0, Math.min(aw - 1, Math.round(ax)));
-    const yi = Math.max(0, Math.min(ah - 1, Math.round(ay)));
-    return lum[yi * aw + xi];
-  };
-  const edgeAt = (ax: number, ay: number): number => {
-    const xi = Math.max(0, Math.min(aw - 1, Math.round(ax)));
-    const yi = Math.max(0, Math.min(ah - 1, Math.round(ay)));
-    return edges[yi * aw + xi];
-  };
+  const edgeAt = (ax: number, ay: number) =>
+    edges[Math.max(0, Math.min(ah - 1, Math.round(ay))) * aw +
+          Math.max(0, Math.min(aw - 1, Math.round(ax)))];
 
-  // ── Pass 0 — Structural ──────────────────────────────────────────────────────
+  // ── Adaptive radius function ───────────────────────────────────────────────
   //
-  // Poisson radius (in analysis pixels) drives the overall dot density.
-  // Higher density setting → smaller radius → more dots.
-  // dotSize is converted to analysis space so the physical density
-  // feels the same regardless of image resolution.
+  // The Poisson spacing radius r(x,y) maps luminance to dot spacing:
   //
-  const dotSizeA    = dotSize * imgToA;
-  // spacing range: from 0.6× dotSizeA (dense) to 2.5× dotSizeA (sparse)
-  const minR0       = Math.max(1.0, dotSizeA * (2.5 - densityT * 1.9));
-  const pass0MaxPts = Math.round(MAX_DOTS * 0.72);
+  //   lum = 0 (black) → r_dark  (tight, many dots)
+  //   lum = 1 (white) → r_light (loose, few dots)
+  //
+  // r_dark is derived from dotSize and density; r_light is a fixed multiple
+  // of r_dark (4×) so light areas always end up visibly sparser.
+  //
+  // Power γ < 1 compresses the dark end of the curve, meaning mid-tones
+  // already feel relatively dense — matching the perceptual expectation
+  // that medium-grey should have a moderate number of dots.
+  //
+  const dotSizeA = Math.max(0.5, dotSize * imgToA);
+  // Base spacing for the darkest pixels: density slider controls this.
+  const r_dark   = Math.max(1.0, dotSizeA * (0.70 + (1 - densityT) * 1.20));
+  // Spacing for the lightest pixels: always at least 4× the dark spacing.
+  const r_light  = r_dark * 4.0;
+  // Luminance-to-radius curve exponent (< 1 = more dots in mid-tones)
+  const GAMMA    = 0.65;
 
-  const raw0 = bridson(aw, ah, minR0, rng, pass0MaxPts);
+  const getRadius = (ax: number, ay: number): number => {
+    const l = lumAt(ax, ay);
+    // Power curve: 0 → r_dark, 1 → r_light
+    return r_dark + (r_light - r_dark) * Math.pow(l, GAMMA);
+  };
+
+  // ── Pass 0: Structural (adaptive) ─────────────────────────────────────────
+  const pass0Max = Math.round(MAX_DOTS * 0.72);
+  const raw0     = adaptiveBridson(aw, ah, getRadius, r_dark, r_light, rng, pass0Max);
   const dots: Dot[] = [];
 
-  // Luminance threshold above which we skip dots (light areas get fewer)
-  // Denser settings push the cutoff higher so more of the image is covered.
-  const lumCutoff = 0.25 + densityT * 0.65;  // [0.25 to 0.90]
-
   for (const { x: ax, y: ay } of raw0) {
-    if (dots.length >= pass0MaxPts) break;
+    if (dots.length >= pass0Max) break;
+    const l    = lumAt(ax, ay);
+    const dark = 1 - l;
 
-    const l     = lumAt(ax, ay);
-    const dark  = 1 - l;
-
-    // Stochastic skip for light areas: probability rises as l → 1
-    if (l > lumCutoff) {
-      const skipP = (l - lumCutoff) / (1 - lumCutoff + 1e-6);
-      if (rng() < skipP * skipP) continue;  // quadratic falloff
-    }
-
-    // Draw radius: dark pixels get larger dots (S-curve feel)
+    // Draw radius: dark → full dotSize, light → 0.20 × dotSize.
+    // γ=0.5 gives a natural mid-tone feel without tiny unreadable dots.
     const drawR = dotSize * Math.max(0.20, Math.pow(dark, 0.50));
 
-    // Optional extra jitter on top of Poisson's inherent randomness
-    const jAmt = minR0 * jitterT * 0.40 * aToImg;
+    // Optional extra jitter (Poisson is inherently organic; this adds more)
+    const jAmt = r_dark * jitterT * 0.35 * aToImg;
     const jx   = jAmt > 0 ? (rng() - 0.5) * 2 * jAmt : 0;
     const jy   = jAmt > 0 ? (rng() - 0.5) * 2 * jAmt : 0;
 
-    dots.push({
-      x:    ax * aToImg + jx,
-      y:    ay * aToImg + jy,
-      r:    drawR,
-      ax, ay,
-      pass: 0,
-    });
+    dots.push({ x: ax * aToImg + jx, y: ay * aToImg + jy, r: drawR, ax, ay, pass: 0 });
   }
 
-  // ── Pass 1 — Edge Detail ─────────────────────────────────────────────────────
-  //
-  // A second Poisson pass with ~45% of the structural radius, restricted to
-  // cells with significant edge strength.  These small, dense dots sharpen
-  // contours and add fine micro-texture along edges.
-  //
+  // ── Pass 1: Edge detail (fixed radius, edge zones only) ───────────────────
   if (edgeW > 0.05) {
-    const minR1       = Math.max(0.7, minR0 * 0.42);
-    const pass1MaxPts = Math.round(MAX_DOTS * 0.30);
-
-    const raw1 = bridson(aw, ah, minR1, rng, pass1MaxPts);
+    // Tighter grid at ~42% of the dark spacing → fills in fine contour detail
+    const r_edge   = Math.max(0.7, r_dark * 0.42);
+    const pass1Max = Math.round(MAX_DOTS * 0.30);
+    const raw1     = fixedBridson(aw, ah, r_edge, rng, pass1Max);
 
     for (const { x: ax, y: ay } of raw1) {
       if (dots.length >= MAX_DOTS) break;
-
-      const e     = edgeAt(ax, ay);
-      const eStr  = e * edgeW;
-      if (eStr < 0.18) continue; // below edge threshold — skip
-
+      const e    = edgeAt(ax, ay) * edgeW;
+      if (e < 0.18) continue;
       const l    = lumAt(ax, ay);
       const dark = 1 - l;
-      if (dark < 0.04) continue; // near-white → invisible anyway
+      if (dark < 0.05) continue;
+      if (rng() > e * 1.4) continue;
 
-      // Probability proportional to edge strength (stronger = more dots)
-      if (rng() > eStr * 1.5) continue;
-
-      // Smaller draw radius — these are detail/refinement dots
       const drawR = dotSize * Math.max(0.12, Math.pow(dark, 0.60) * 0.42);
+      const jAmt  = r_edge * jitterT * 0.15 * aToImg;
+      const jx    = jAmt > 0 ? (rng() - 0.5) * 2 * jAmt : 0;
+      const jy    = jAmt > 0 ? (rng() - 0.5) * 2 * jAmt : 0;
 
-      // Very small jitter for edge accuracy
-      const jAmt = minR1 * jitterT * 0.15 * aToImg;
-      const jx   = jAmt > 0 ? (rng() - 0.5) * 2 * jAmt : 0;
-      const jy   = jAmt > 0 ? (rng() - 0.5) * 2 * jAmt : 0;
-
-      dots.push({
-        x:    ax * aToImg + jx,
-        y:    ay * aToImg + jy,
-        r:    drawR,
-        ax, ay,
-        pass: 1,
-      });
+      dots.push({ x: ax * aToImg + jx, y: ay * aToImg + jy, r: drawR, ax, ay, pass: 1 });
     }
   }
 
