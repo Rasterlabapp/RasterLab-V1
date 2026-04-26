@@ -4,6 +4,7 @@
  * Builds all analysis maps needed by the sampling and renderer:
  *   - Perceptual luminance map  (BT.709)
  *   - Multi-scale Sobel edge map (fine/contour/silhouette blended)
+ *   - Portrait saliency map     (local contrast + edges + dark extremes)
  *   - R/G/B Summed-Area Tables  (O(1) color queries)
  *
  * Everything runs in analysis-resolution space (≤ ANALYSIS_MAX px on
@@ -27,6 +28,13 @@ export interface AnalysisMaps {
   lum: Float32Array;
   /** [0,1] blended multi-scale edge strength at analysis resolution */
   edges: Float32Array;
+  /**
+   * [0,1] portrait saliency — how much each pixel contributes to facial
+   * recognizability.  High where eyes, lips, jawline, hairline and nose
+   * bridge are likely to be.  Used by the sampler to guarantee dot coverage
+   * in those zones even at low dot counts.
+   */
+  saliency: Float32Array;
   /** Summed-area tables for R, G, B channels (values 0–255) */
   rSAT: Float64Array;
   gSAT: Float64Array;
@@ -176,6 +184,74 @@ function buildEdgeMap(lum: Float32Array, w: number, h: number): Float32Array {
   return dilated;
 }
 
+// ─── Local contrast map ───────────────────────────────────────────────────────
+/**
+ * Local luminance range: max(lum) − min(lum) in a (2r+1)² window.
+ *
+ * This is the primary discriminator between facial features and smooth skin:
+ *   eyes     → very high range (pupil dark + iris mid + sclera bright + lash)
+ *   lips     → high range (skin/lip boundary, teeth highlight)
+ *   nose tip → medium range (highlight + nostril shadow)
+ *   skin     → low range  (smooth tonal gradient)
+ *   hair     → medium range (individual strands + shine)
+ *
+ * r = 3 → 7×7 window → 49 ops/pixel → ~31 M ops for 800² — runs in < 30 ms.
+ * Larger r would merge the pupil and sclera into a single averaged region and
+ * lose the very signal we care about.
+ */
+function buildLocalContrastMap(lum: Float32Array, w: number, h: number, r = 3): Float32Array {
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let lo = 1.0, hi = 0.0;
+      for (let dy = -r; dy <= r; dy++) {
+        const ny = Math.max(0, Math.min(h - 1, y + dy));
+        for (let dx = -r; dx <= r; dx++) {
+          const v = lum[ny * w + Math.max(0, Math.min(w - 1, x + dx))];
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+      }
+      out[y * w + x] = hi - lo;
+    }
+  }
+  return out;
+}
+
+// ─── Portrait saliency map ────────────────────────────────────────────────────
+/**
+ * Combines three signals into a single [0,1] "how important is this pixel
+ * to facial recognizability" score.
+ *
+ * edgeStrength  (weight 0.45) — multi-scale Sobel: catches jawline, hairline,
+ *                lip boundary, eyelid crease, nose tip.
+ * localContrast (weight 0.40) — max−min in 7×7: catches iris texture, lash
+ *                density, lip-tooth contrast, nostril interior.
+ * darkExtreme   (weight 0.15) — peaks when lum < 0.25: catches pupils,
+ *                nostrils, deep shadow in the eye socket and under the chin.
+ *
+ * The result is blurred lightly (r = 2) so high-saliency zones expand slightly
+ * beyond the precise pixel — this ensures nearby Poisson candidates also feel
+ * the pull toward important features.
+ */
+function buildPortraitSaliencyMap(
+  lum:   Float32Array,
+  edges: Float32Array,
+  w:     number,
+  h:     number,
+): Float32Array {
+  const lc  = buildLocalContrastMap(lum, w, h, 3);
+  const raw = new Float32Array(w * h);
+  for (let i = 0; i < raw.length; i++) {
+    const edgePart  = edges[i] * 0.45;
+    const lcPart    = lc[i]    * 0.40;
+    const darkPart  = Math.max(0, 0.25 - lum[i]) * 4 * 0.15; // lum < 0.25 → [0,1]
+    raw[i] = Math.min(1, edgePart + lcPart + darkPart);
+  }
+  // Light spatial blur so the saliency field bleeds ~2px around features
+  return blurF32(raw, w, h, 2);
+}
+
 // ─── Summed-Area Table ────────────────────────────────────────────────────────
 
 function buildSAT(values: Float32Array, w: number, h: number): Float64Array {
@@ -271,12 +347,14 @@ export function buildAnalysisMaps(
     }
   }
 
+  const edgeMap = buildEdgeMap(lumA, aw, ah);
   return {
-    lum:   lumA,
-    edges: buildEdgeMap(lumA, aw, ah),
-    rSAT:  buildSAT(rA, aw, ah),
-    gSAT:  buildSAT(gA, aw, ah),
-    bSAT:  buildSAT(bA, aw, ah),
+    lum:      lumA,
+    edges:    edgeMap,
+    saliency: buildPortraitSaliencyMap(lumA, edgeMap, aw, ah),
+    rSAT:     buildSAT(rA, aw, ah),
+    gSAT:     buildSAT(gA, aw, ah),
+    bSAT:     buildSAT(bA, aw, ah),
     aw, ah, scaleX, scaleY,
   };
 }
