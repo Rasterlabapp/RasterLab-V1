@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEditorStore } from '@/store/editor-store';
 import type { ViewMode } from '@/types';
 
@@ -16,6 +17,13 @@ export function Toolbar() {
   return (
     <div className="flex items-center gap-4 px-4 h-11 bg-zinc-900 border-b border-zinc-800 text-sm">
       <span className="font-bold text-white tracking-tight mr-2">RasterLab</span>
+      <Link
+        href="/pointillist"
+        className="px-2.5 py-1 rounded text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+        title="Pointillist Generator"
+      >
+        ⬤ Pointillist
+      </Link>
       <span className="text-zinc-600">|</span>
 
       {/* View mode */}
