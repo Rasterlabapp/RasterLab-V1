@@ -3,14 +3,21 @@
  *
  * Draws a Dot[] onto any Canvas 2D context (HTML or Offscreen).
  *
+ * Draw order:
+ *   Dots are sorted largest-first (draw radius descending) so large structural
+ *   dots paint below fine detail dots.  This improves perceived depth and keeps
+ *   edge/saliency dots readable on top of the tonal layer.
+ *   Colour bucket is used as a tiebreaker within the same size to preserve
+ *   batch efficiency (fewer fillStyle switches).
+ *
  * Colour path:
  *   - Samples dot colour from pre-built RGB SATs (O(1) per dot)
- *   - Quantises to 32-level palette per channel → sorts dots by palette bucket
- *   - Batch-fills all dots of the same colour in one beginPath/fill call
+ *   - Quantises to 32-level palette per channel
+ *   - Sorts by size desc, then colour bucket → batch-fills same-colour runs
  *   - Minimises fillStyle reassignments → fast on all GPU-backed renderers
  *
  * Monochrome path:
- *   - Single colour, single beginPath → as fast as possible
+ *   - Sorted by size desc, single colour, single beginPath
  *
  * Sub-pixel dots (r < 1):
  *   - Drawn at r = 1 with globalAlpha = r for smooth anti-aliased fade
@@ -92,11 +99,13 @@ export function renderDots(
 
   // ── Monochrome fast path ───────────────────────────────────────────────────
   if (!isColor) {
+    // Sort largest → smallest so big tonal dots paint below fine detail dots
+    const sorted = dots.slice().sort((a, b) => b.r - a.r);
     const fg = isLightBg(settings.backgroundColor) ? '#111111' : '#ffffff';
     ctx.fillStyle = fg;
     ctx.beginPath();
 
-    for (const d of dots) {
+    for (const d of sorted) {
       if (d.r < 0.25) continue;
       if (d.r < 1) {
         // flush current path, draw sub-pixel dot with alpha
@@ -129,14 +138,14 @@ export function renderDots(
     buckets[i]    = quantize(r, g, b);
   }
 
-  // 2. Sort by bucket (pass 0 then pass 1 within each bucket for layering)
+  // 2. Sort: largest draw radius first (depth), colour bucket as tiebreaker
+  //    (batches same-colour dots within each size tier → fewer fillStyle calls)
   const order = new Int32Array(n);
   for (let i = 0; i < n; i++) order[i] = i;
-  // Composite sort key: bucket << 1 | pass
   order.sort((a, b) => {
-    const ka = (buckets[a] << 1) | dots[a].pass;
-    const kb = (buckets[b] << 1) | dots[b].pass;
-    return ka - kb;
+    const rd = dots[b].r - dots[a].r;   // descending radius
+    if (rd !== 0) return rd;
+    return buckets[a] - buckets[b];     // ascending bucket (batch efficiency)
   });
 
   // 3. Draw batched arcs
