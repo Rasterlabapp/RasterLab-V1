@@ -9,11 +9,10 @@ const MAX_PX = 3000;
 export function PreviewCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rendering, setRendering] = useState(false);
-  const [dragOver, setDragOver]   = useState(false);
+  const [dragOver,  setDragOver]  = useState(false);
 
   const { settings, sourceImage, setSourceImage, setRenderTime } = usePointillistStore();
 
-  // ── Worker-backed renderer ──────────────────────────────────────────────────
   const { scheduleRender, supportsWorker } = usePointillistRenderer(canvasRef, {
     onRenderStart: () => setRendering(true),
     onRenderDone:  (ms) => { setRenderTime(ms); setRendering(false); },
@@ -34,7 +33,7 @@ export function PreviewCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceImage]);
 
-  // ── File loading ────────────────────────────────────────────────────────────
+  // ── File loading ─────────────────────────────────────────────────────────────
   const loadFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
@@ -42,7 +41,7 @@ export function PreviewCanvas() {
       const img = new Image();
       img.onload = () => {
         let { width, height } = img;
-        if (width > MAX_PX)  { height = Math.round(height * MAX_PX / width);  width = MAX_PX; }
+        if (width  > MAX_PX) { height = Math.round(height * MAX_PX / width);  width  = MAX_PX; }
         if (height > MAX_PX) { width  = Math.round(width  * MAX_PX / height); height = MAX_PX; }
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
@@ -62,7 +61,10 @@ export function PreviewCanvas() {
   };
 
   return (
-    <main className="flex-1 flex flex-col bg-[#0a0a0c] overflow-hidden relative min-w-0">
+    <main
+      className="flex-1 flex flex-col overflow-hidden relative min-w-0"
+      style={{ background: '#0a0a0a' }}
+    >
 
       {/* ── Empty state ──────────────────────────────────────────────────────── */}
       {!sourceImage && (
@@ -72,27 +74,34 @@ export function PreviewCanvas() {
           onDragLeave={() => setDragOver(false)}
           className="absolute inset-0 z-10 flex flex-col items-center justify-center cursor-pointer select-none"
         >
-          {/* Radial ambient glow */}
-          <div className="absolute inset-0 pointer-events-none"
-            style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(99,102,241,0.06) 0%, transparent 70%)' }} />
+          {/* Subtle radial */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ background: 'radial-gradient(ellipse 55% 45% at 50% 50%, rgba(255,255,255,0.025) 0%, transparent 70%)' }}
+          />
 
           {/* Drop card */}
-          <div className={`relative flex flex-col items-center gap-6 px-10 py-10 rounded-2xl border transition-all duration-300 ${
-            dragOver
-              ? 'border-indigo-500/60 bg-indigo-500/[0.06] shadow-xl shadow-indigo-900/20'
-              : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.04]'
-          }`}>
-
-            {/* Icon */}
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 ${
-              dragOver
-                ? 'bg-indigo-500/20 border border-indigo-500/40 shadow-lg shadow-indigo-900/30'
-                : 'bg-white/[0.04] border border-white/[0.08]'
-            }`}>
+          <div
+            className="relative flex flex-col items-center gap-7 px-12 py-10 rounded-2xl transition-all duration-250"
+            style={{
+              background: dragOver ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+              border:     `1px solid ${dragOver ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)'}`,
+            }}
+          >
+            {/* Upload icon */}
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-250"
+              style={{
+                background: dragOver ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
+                border:     `1px solid ${dragOver ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)'}`,
+              }}
+            >
               <svg
                 viewBox="0 0 32 32"
-                className={`w-7 h-7 transition-colors duration-300 ${dragOver ? 'text-indigo-400' : 'text-zinc-500'}`}
-                fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                className="w-7 h-7"
+                style={{ color: dragOver ? '#cccccc' : '#444444' }}
+                fill="none" stroke="currentColor" strokeWidth="1.5"
+                strokeLinecap="round" strokeLinejoin="round"
               >
                 <rect x="4" y="4" width="24" height="24" rx="4" />
                 <circle cx="11" cy="11" r="2.5" />
@@ -101,27 +110,40 @@ export function PreviewCanvas() {
             </div>
 
             {/* Text */}
-            <div className="text-center flex flex-col gap-1.5">
-              <p className={`text-sm font-semibold transition-colors duration-200 ${dragOver ? 'text-indigo-300' : 'text-zinc-200'}`}>
+            <div className="text-center flex flex-col gap-2">
+              <p
+                className="text-[14px] font-semibold"
+                style={{ color: dragOver ? '#ffffff' : '#888888' }}
+              >
                 {dragOver ? 'Release to load image' : 'Drop an image here'}
               </p>
-              <p className="text-[11px] text-zinc-600">
-                or <span className="text-zinc-400 underline underline-offset-2 decoration-zinc-600">browse files</span>
+              <p className="text-[12px]" style={{ color: '#444444' }}>
+                or{' '}
+                <span style={{ color: '#777777', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                  browse files
+                </span>
                 {' '}· JPG, PNG, WebP up to {MAX_PX}px
               </p>
             </div>
 
             {/* Worker badge */}
             {supportsWorker && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/[0.08] border border-indigo-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                <span className="text-[10px] font-medium text-indigo-400">Worker renderer active</span>
+              <div
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                <span className="text-[10px] font-medium" style={{ color: '#555555' }}>
+                  Worker renderer active
+                </span>
               </div>
             )}
           </div>
 
           {/* Keyboard hint */}
-          <p className="mt-5 text-[10px] text-zinc-700">Ctrl+V to paste from clipboard</p>
+          <p className="mt-6 text-[11px]" style={{ color: '#2e2e2e' }}>
+            Ctrl+V to paste from clipboard
+          </p>
 
           <input
             type="file" accept="image/*" className="hidden"
@@ -134,32 +156,43 @@ export function PreviewCanvas() {
       <div
         onDrop={sourceImage ? onDrop : undefined}
         onDragOver={sourceImage ? (e) => e.preventDefault() : undefined}
-        className="flex-1 min-h-0 flex items-center justify-center p-6 overflow-hidden"
+        className="flex-1 min-h-0 flex items-center justify-center p-8 overflow-hidden"
       >
-        {/* Wrapper carries explicit h-full/w-full so max-h/max-w on canvas work */}
         <div
           className="relative h-full w-full flex items-center justify-center"
           style={{ display: sourceImage ? 'flex' : 'none' }}
         >
           <canvas
             ref={canvasRef}
-            className="rounded-xl shadow-2xl shadow-black/70"
-            style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', imageRendering: 'auto' }}
+            className="rounded-xl"
+            style={{
+              display:        'block',
+              maxWidth:       '100%',
+              maxHeight:      '100%',
+              imageRendering: 'auto',
+              boxShadow:      '0 0 0 1px rgba(255,255,255,0.07), 0 28px 70px rgba(0,0,0,0.75)',
+            }}
           />
 
           {/* Rendering overlay */}
-          <div className={`absolute inset-0 flex items-center justify-center rounded-xl transition-opacity duration-200 pointer-events-none ${
-            rendering ? 'opacity-100' : 'opacity-0'
-          }`}>
-            <div className="absolute inset-0 bg-black/30 rounded-xl" />
-            <div className="relative flex items-center gap-2 bg-[#0f0f12]/90 backdrop-blur-sm px-3.5 py-2 rounded-full border border-white/[0.08] shadow-xl">
-              <svg className="animate-spin w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
-                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"/>
+          <div
+            className="absolute inset-0 flex items-center justify-center rounded-xl pointer-events-none transition-opacity duration-200"
+            style={{ opacity: rendering ? 1 : 0 }}
+          >
+            <div className="absolute inset-0 rounded-xl" style={{ background: 'rgba(0,0,0,0.4)' }} />
+            <div
+              className="relative flex items-center gap-2.5 px-4 py-2.5 rounded-full"
+              style={{
+                background: 'rgba(17,17,17,0.95)',
+                border:     '1px solid rgba(255,255,255,0.1)',
+                boxShadow:  '0 8px 32px rgba(0,0,0,0.6)',
+              }}
+            >
+              <svg className="animate-spin w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5"/>
+                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"/>
               </svg>
-              <span className="text-[11px] font-medium text-zinc-300">
-                {supportsWorker ? 'Rendering…' : 'Rendering…'}
-              </span>
+              <span className="text-[12px] font-medium text-white">Rendering…</span>
             </div>
           </div>
         </div>
@@ -174,26 +207,31 @@ export function PreviewCanvas() {
 function StatusBar({ supportsWorker }: { supportsWorker: boolean }) {
   const { renderTimeMs, sourceImage, settings } = usePointillistStore();
   return (
-    <div className="h-8 border-t border-white/[0.05] flex items-center px-4 gap-3 text-[10px] text-zinc-600 bg-[#0f0f12] flex-shrink-0 select-none">
+    <div
+      className="h-8 flex items-center px-5 gap-3 flex-shrink-0 select-none"
+      style={{ borderTop: '1px solid #181818', background: '#0d0d0d' }}
+    >
       {sourceImage && (
-        <span className="text-zinc-500 tabular-nums">{sourceImage.width} × {sourceImage.height}px</span>
+        <span className="text-[11px] tabular-nums" style={{ color: '#555555' }}>
+          {sourceImage.width} × {sourceImage.height}px
+        </span>
       )}
       <Dot />
-      <span className="capitalize">{settings.colorMode}</span>
+      <span className="text-[11px] capitalize" style={{ color: '#444444' }}>{settings.colorMode}</span>
       <Dot />
-      <span>dot {settings.dotSize}px</span>
+      <span className="text-[11px]" style={{ color: '#444444' }}>dot {settings.dotSize}px</span>
       <Dot />
-      <span>density {settings.density}%</span>
+      <span className="text-[11px]" style={{ color: '#444444' }}>density {settings.density}%</span>
       {supportsWorker && (
         <>
           <Dot />
-          <span className="flex items-center gap-1 text-indigo-500/60">
-            <span className="w-1 h-1 rounded-full bg-indigo-500/60 inline-block" />
+          <span className="flex items-center gap-1.5 text-[11px]" style={{ color: '#333333' }}>
+            <span className="w-[5px] h-[5px] rounded-full inline-block" style={{ background: '#333333' }} />
             worker
           </span>
         </>
       )}
-      <span className="ml-auto tabular-nums text-zinc-600">
+      <span className="ml-auto text-[11px] tabular-nums" style={{ color: '#444444' }}>
         {renderTimeMs > 0 ? `${renderTimeMs} ms` : '—'}
       </span>
     </div>
@@ -201,5 +239,10 @@ function StatusBar({ supportsWorker }: { supportsWorker: boolean }) {
 }
 
 function Dot() {
-  return <span className="w-[3px] h-[3px] rounded-full bg-white/10 flex-shrink-0 inline-block" />;
+  return (
+    <span
+      className="w-[3px] h-[3px] rounded-full flex-shrink-0 inline-block"
+      style={{ background: '#252525' }}
+    />
+  );
 }

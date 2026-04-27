@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { usePointillistStore } from '@/store/pointillist-store';
 import { renderPointillistCore } from '@/lib/pointillist-engine';
 
-type Tab = 'presets' | 'export';
+type Tab    = 'presets' | 'export';
 type BgMode = 'white' | 'transparent';
 
 // ─── RightPanel shell ─────────────────────────────────────────────────────────
@@ -13,21 +13,40 @@ export function RightPanel() {
   const [tab, setTab] = useState<Tab>('presets');
 
   return (
-    <aside className="w-52 flex flex-col bg-[#0f0f12] border-l border-white/[0.06] flex-shrink-0">
-
+    <aside
+      className="w-56 flex flex-col flex-shrink-0"
+      style={{ background: '#111111', borderLeft: '1px solid #1e1e1e' }}
+    >
       {/* Tab bar */}
-      <div className="flex border-b border-white/[0.06] flex-shrink-0">
+      <div
+        className="flex flex-shrink-0"
+        style={{ borderBottom: '1px solid #1e1e1e' }}
+      >
         {(['presets', 'export'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 py-3 text-[10px] font-bold tracking-[0.1em] uppercase transition-all duration-150 relative ${
-              tab === t ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'
-            }`}
+            className="flex-1 h-11 relative transition-colors duration-150"
+            style={{
+              color: tab === t ? '#ffffff' : '#444444',
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+            }}
+            onMouseEnter={(e) => {
+              if (tab !== t) (e.currentTarget as HTMLButtonElement).style.color = '#888888';
+            }}
+            onMouseLeave={(e) => {
+              if (tab !== t) (e.currentTarget as HTMLButtonElement).style.color = '#444444';
+            }}
           >
             {t}
             {tab === t && (
-              <span className="absolute bottom-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full" />
+              <span
+                className="absolute bottom-0 inset-x-0 h-[1.5px] rounded-full"
+                style={{ background: '#ffffff' }}
+              />
             )}
           </button>
         ))}
@@ -44,12 +63,12 @@ export function RightPanel() {
 // ─── Presets tab ──────────────────────────────────────────────────────────────
 
 const PRESET_ICONS: Record<string, string> = {
-  impressionist: '🎨',
+  impressionist: '⬤',
   seurat:        '⬤',
-  stipple:       '✦',
-  coarse:        '◉',
-  'edge-only':   '◌',
-  neon:          '✺',
+  stipple:       '⬤',
+  coarse:        '⬤',
+  'edge-only':   '⬤',
+  neon:          '⬤',
 };
 
 function PresetsTab() {
@@ -69,7 +88,7 @@ function PresetsTab() {
   const custom  = presets.slice(6);
 
   return (
-    <div className="p-3 flex flex-col gap-5">
+    <div className="p-4 flex flex-col gap-6">
 
       {/* Built-in */}
       <div className="flex flex-col gap-0.5">
@@ -103,20 +122,28 @@ function PresetsTab() {
       )}
 
       {/* Save current */}
-      <div className="border-t border-white/[0.05] pt-4">
+      <div className="pt-1" style={{ borderTop: '1px solid #1a1a1a' }}>
         {saving ? (
-          <div className="flex gap-1.5">
+          <div className="flex gap-2 pt-4">
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setSaving(false); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter')  save();
+                if (e.key === 'Escape') setSaving(false);
+              }}
               placeholder="Preset name…"
               autoFocus
-              className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
+              className="flex-1 min-w-0 rounded-lg px-3 py-2 text-[12px] text-white focus:outline-none transition-colors"
+              style={{
+                background: '#1a1a1a',
+                border:     '1px solid #333333',
+              }}
             />
             <button
               onClick={save}
-              className="w-7 h-7 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold flex-shrink-0 flex items-center justify-center transition-colors"
+              className="w-8 h-8 rounded-lg text-sm font-bold flex-shrink-0 flex items-center justify-center transition-colors"
+              style={{ background: '#ffffff', color: '#000000' }}
             >
               ✓
             </button>
@@ -124,7 +151,19 @@ function PresetsTab() {
         ) : (
           <button
             onClick={() => setSaving(true)}
-            className="w-full py-2 border border-dashed border-white/[0.08] hover:border-indigo-500/40 rounded-lg text-[11px] text-zinc-600 hover:text-zinc-300 transition-all duration-150"
+            className="w-full mt-4 py-2.5 rounded-lg text-[11px] font-medium transition-all duration-150"
+            style={{
+              border: '1px dashed #2a2a2a',
+              color:  '#444444',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#555555';
+              (e.currentTarget as HTMLButtonElement).style.color = '#888888';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a2a2a';
+              (e.currentTarget as HTMLButtonElement).style.color = '#444444';
+            }}
           >
             + Save current as preset
           </button>
@@ -141,23 +180,36 @@ function PresetRow({ icon, name, active, onLoad, onDelete }: {
   return (
     <div
       onClick={onLoad}
-      className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-150 ${
-        active
-          ? 'bg-indigo-600/[0.15] border border-indigo-500/25'
-          : 'border border-transparent hover:bg-white/[0.04]'
-      }`}
+      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150"
+      style={{
+        background: active ? 'rgba(255,255,255,0.07)' : 'transparent',
+        border:     `1px solid ${active ? 'rgba(255,255,255,0.1)' : 'transparent'}`,
+      }}
+      onMouseEnter={(e) => {
+        if (!active) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)';
+      }}
+      onMouseLeave={(e) => {
+        if (!active) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+      }}
     >
-      <span className={`text-xs flex-shrink-0 w-4 text-center ${active ? 'text-indigo-400' : 'text-zinc-600'}`}>
-        {icon}
-      </span>
-      <span className={`flex-1 text-[11px] font-medium truncate ${active ? 'text-white' : 'text-zinc-400 group-hover:text-zinc-200'}`}>
+      {/* Dot indicator */}
+      <span
+        className="flex-shrink-0 w-[5px] h-[5px] rounded-full"
+        style={{ background: active ? '#ffffff' : '#333333' }}
+      />
+      <span
+        className="flex-1 text-[12px] font-medium truncate"
+        style={{ color: active ? '#ffffff' : '#666666' }}
+      >
         {name}
       </span>
-      {active && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />}
       {onDelete && !active && (
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 text-xs w-4 text-center transition-all duration-100"
+          className="opacity-0 group-hover:opacity-100 text-[14px] w-5 text-center transition-all duration-100"
+          style={{ color: '#555555' }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = '#cc4444')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = '#555555')}
           title="Delete preset"
         >
           ×
@@ -171,13 +223,13 @@ function PresetRow({ icon, name, active, onLoad, onDelete }: {
 
 function ExportTab() {
   const { sourceImage, settings } = usePointillistStore();
-  const [bgMode,   setBgMode]   = useState<BgMode>('white');
+  const [bgMode,    setBgMode]    = useState<BgMode>('white');
   const [exporting, setExporting] = useState<null | '1x' | '2x'>(null);
 
   const runExport = async (scale: 1 | 2) => {
     if (!sourceImage || exporting) return;
     setExporting(scale === 1 ? '1x' : '2x');
-    await new Promise<void>((r) => setTimeout(r, 16)); // yield to paint spinner
+    await new Promise<void>((r) => setTimeout(r, 16));
 
     try {
       const w = sourceImage.width  * scale;
@@ -210,8 +262,8 @@ function ExportTab() {
         dst.toBlob((blob) => {
           if (blob) {
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
+            const a   = document.createElement('a');
+            a.href     = url;
             a.download = `pointillist-${settings.colorMode}-${scale}x-${bgMode}-${Date.now()}.png`;
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -227,37 +279,58 @@ function ExportTab() {
   const disabled = !sourceImage;
 
   return (
-    <div className="p-3 flex flex-col gap-5">
+    <div className="p-4 flex flex-col gap-6">
 
       {/* Background */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <SectionLabel>Background</SectionLabel>
-        <div className="grid grid-cols-2 gap-1 p-[3px] bg-white/[0.04] rounded-lg border border-white/[0.06]">
+        <div
+          className="flex p-[3px] rounded-lg gap-[3px]"
+          style={{ background: '#161616', border: '1px solid #282828' }}
+        >
           {(['white', 'transparent'] as BgMode[]).map((m) => (
             <button
               key={m}
               onClick={() => setBgMode(m)}
-              className={`py-1.5 rounded-md text-[10px] font-semibold transition-all duration-150 flex items-center justify-center gap-1.5 ${
+              className="flex-1 py-2 rounded-md text-[11px] font-semibold transition-all duration-150 flex items-center justify-center gap-1.5"
+              style={
                 bgMode === m
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-200'
-              }`}
+                  ? { background: '#ffffff', color: '#000000' }
+                  : { color: '#555555' }
+              }
+              onMouseEnter={(e) => {
+                if (bgMode !== m) (e.currentTarget as HTMLButtonElement).style.color = '#aaaaaa';
+              }}
+              onMouseLeave={(e) => {
+                if (bgMode !== m) (e.currentTarget as HTMLButtonElement).style.color = '#555555';
+              }}
             >
               {m === 'white' ? (
-                <><span className="w-2.5 h-2.5 rounded-sm bg-white border border-zinc-400/60 inline-block flex-shrink-0" />White</>
+                <>
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm inline-block flex-shrink-0"
+                    style={{ background: '#ffffff', border: '1px solid #aaaaaa' }}
+                  />
+                  White
+                </>
               ) : (
-                <><span className="w-2.5 h-2.5 rounded-sm border border-dashed border-zinc-400/60 inline-block flex-shrink-0" />Alpha</>
+                <>
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm inline-block flex-shrink-0"
+                    style={{ border: '1px dashed #666666' }}
+                  />
+                  Alpha
+                </>
               )}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Buttons */}
-      <div className="flex flex-col gap-2">
+      {/* Download */}
+      <div className="flex flex-col gap-3">
         <SectionLabel>Download PNG</SectionLabel>
 
-        {/* 1× */}
         <ExportButton
           label="1×"
           dims={sourceImage ? `${sourceImage.width}×${sourceImage.height}` : null}
@@ -267,7 +340,6 @@ function ExportTab() {
           onClick={() => runExport(1)}
         />
 
-        {/* 2× */}
         <ExportButton
           label="2×"
           dims={sourceImage ? `${sourceImage.width * 2}×${sourceImage.height * 2}` : null}
@@ -276,15 +348,15 @@ function ExportTab() {
           onClick={() => runExport(2)}
         />
 
-        <p className="text-[10px] text-zinc-700 text-center">
+        <p className="text-[10px] text-center" style={{ color: '#333333' }}>
           Re-rendered at export size
         </p>
       </div>
 
-      {/* Summary */}
+      {/* Settings summary */}
       {sourceImage && (
-        <div className="border-t border-white/[0.05] pt-4 flex flex-col gap-2">
-          <SectionLabel>Settings</SectionLabel>
+        <div className="flex flex-col gap-3" style={{ borderTop: '1px solid #1a1a1a', paddingTop: 20 }}>
+          <SectionLabel>Current Settings</SectionLabel>
           {[
             ['Mode',     settings.colorMode],
             ['Dot',      `${settings.dotSize}px`],
@@ -293,8 +365,8 @@ function ExportTab() {
             ['Edge',     `${settings.edgeSensitivity}%`],
           ].map(([k, v]) => (
             <div key={k} className="flex items-center justify-between">
-              <span className="text-[10px] text-zinc-600">{k}</span>
-              <span className="text-[10px] font-mono text-zinc-400">{v}</span>
+              <span className="text-[11px]" style={{ color: '#444444' }}>{k}</span>
+              <span className="text-[11px] font-mono font-medium" style={{ color: '#777777' }}>{v}</span>
             </div>
           ))}
         </div>
@@ -307,7 +379,12 @@ function ExportTab() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[9px] font-bold tracking-[0.12em] uppercase text-zinc-600 px-1 mb-0.5">{children}</p>
+    <p
+      className="text-[10px] font-bold tracking-[0.13em] uppercase"
+      style={{ color: '#444444' }}
+    >
+      {children}
+    </p>
   );
 }
 
@@ -319,12 +396,24 @@ function ExportButton({ label, dims, loading, disabled, primary, onClick }: {
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`w-full py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-150 flex items-center justify-center gap-2
-        disabled:opacity-30 disabled:cursor-not-allowed ${
+      className="w-full py-3 rounded-xl text-[12px] font-semibold transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-25 disabled:cursor-not-allowed"
+      style={
         primary
-          ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-md shadow-indigo-900/40'
-          : 'bg-white/[0.06] hover:bg-white/[0.10] text-zinc-200 border border-white/[0.06]'
-      }`}
+          ? { background: '#ffffff', color: '#000000' }
+          : { background: '#1a1a1a', color: '#888888', border: '1px solid #2a2a2a' }
+      }
+      onMouseEnter={(e) => {
+        if (disabled) return;
+        const btn = e.currentTarget as HTMLButtonElement;
+        if (primary) { btn.style.background = '#e0e0e0'; }
+        else         { btn.style.background = '#222222'; btn.style.color = '#aaaaaa'; }
+      }}
+      onMouseLeave={(e) => {
+        if (disabled) return;
+        const btn = e.currentTarget as HTMLButtonElement;
+        if (primary) { btn.style.background = '#ffffff'; }
+        else         { btn.style.background = '#1a1a1a'; btn.style.color = '#888888'; }
+      }}
     >
       {loading ? (
         <>
@@ -334,7 +423,11 @@ function ExportButton({ label, dims, loading, disabled, primary, onClick }: {
       ) : (
         <>
           <span>↓ {label} PNG</span>
-          {dims && <span className="opacity-40 font-normal text-[9px] tabular-nums">{dims}</span>}
+          {dims && (
+            <span className="font-normal text-[10px] tabular-nums" style={{ opacity: 0.4 }}>
+              {dims}
+            </span>
+          )}
         </>
       )}
     </button>
@@ -343,7 +436,7 @@ function ExportButton({ label, dims, loading, disabled, primary, onClick }: {
 
 function Spinner() {
   return (
-    <svg className="animate-spin w-3 h-3 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+    <svg className="animate-spin w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
       <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
       <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"/>
     </svg>
