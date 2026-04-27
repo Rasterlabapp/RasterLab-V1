@@ -4,20 +4,28 @@
  * usePointillistRenderer
  *
  * Manages the full rendering pipeline:
- *   1. Worker lifecycle (create once, terminate on unmount)
- *   2. 250ms debounce on slider changes (image changes are immediate)
- *   3. Render-ID stale-drop: if settings change while worker is busy,
- *      the old result is silently discarded when it arrives
- *   4. Pending queue: if a new render is requested while the worker
- *      is busy, the latest request is queued and fired on completion
- *   5. OffscreenCanvas capability check + main-thread fallback
+ *   1. Worker lifecycle — spawned once; restarted on preemption (see §3)
+ *   2. 150 ms debounce on slider changes; image changes are immediate
+ *   3. Preemptive restart: when the worker is busy and a new render fires,
+ *      the old worker is terminated immediately and a fresh one is started.
+ *      This means sliders never stall waiting for a superseded render to
+ *      finish — the new settings take effect within one render cycle.
+ *   4. Stale-drop: render IDs are checked on 'done' so a result from a
+ *      previous render cycle is discarded without touching the canvas.
+ *   5. OffscreenCanvas capability check + main-thread fallback.
+ *
+ * ── Why terminate-and-restart over a queue ───────────────────────────────────
+ * Workers execute JS synchronously inside their thread. A busy worker cannot
+ * be interrupted cooperatively — it will finish its full Poisson + render pass
+ * before reading the next message.  Terminating is the only way to stop it.
+ * After termination the new worker starts fresh with zero wait.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import { extractPixels, renderPointillist } from '@/lib/pointillist-engine';
 import type { PointillistSettings } from '@/lib/pointillist-engine';
 
-const DEBOUNCE_MS = 250;
+const DEBOUNCE_MS = 150;
 
 // OffscreenCanvas + Worker are available in all modern browsers.
 // This check prevents SSR crashes and gracefully handles old browsers.
@@ -27,17 +35,16 @@ const supportsWorker =
   typeof OffscreenCanvas !== 'undefined';
 
 interface RenderRequest {
-  pixels: Uint8ClampedArray;
-  pixelBuffer: ArrayBuffer; // same buffer, pre-sliced for transfer
-  width: number;
-  height: number;
-  settings: PointillistSettings;
-  immediate: boolean;       // skip debounce (image change)
+  pixels:      Uint8ClampedArray;
+  pixelBuffer: ArrayBuffer;        // same buffer — transferred zero-copy
+  width:       number;
+  height:      number;
+  settings:    PointillistSettings;
 }
 
 interface RendererOptions {
   onRenderStart?: () => void;
-  onRenderDone?: (ms: number) => void;
+  onRenderDone?:  (ms: number) => void;
   onRenderError?: (msg: string) => void;
 }
 
@@ -45,31 +52,28 @@ export function usePointillistRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   options: RendererOptions = {},
 ) {
-  const workerRef    = useRef<Worker | null>(null);
-  const renderIdRef  = useRef(0);               // monotonically increasing
-  const busyRef      = useRef(false);           // worker currently processing
-  const pendingRef   = useRef<RenderRequest | null>(null);
-  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const optionsRef   = useRef(options);
+  const workerRef   = useRef<Worker | null>(null);
+  const renderIdRef = useRef(0);      // monotonically increasing; used for stale-drop
+  const busyRef     = useRef(false);  // true while a render is in-flight
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const optionsRef  = useRef(options);
   useEffect(() => { optionsRef.current = options; });
 
-  // ── Worker setup ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!supportsWorker) return;
-
-    const worker = new Worker(
+  // ── Worker factory ──────────────────────────────────────────────────────────
+  // Extracted so we can call it both on mount and on preemptive restart.
+  const spawnWorker = useCallback((): Worker => {
+    const w = new Worker(
       new URL('../workers/pointillist.worker.ts', import.meta.url),
       { type: 'module' },
     );
 
-    worker.onmessage = (e: MessageEvent) => {
+    w.onmessage = (e: MessageEvent) => {
       const { type, renderId, bitmap, ms, message } = e.data;
 
       if (type === 'error') {
         console.error('[PointillistWorker]', message);
         busyRef.current = false;
         optionsRef.current.onRenderError?.(message);
-        drainPending();
         return;
       }
 
@@ -77,7 +81,7 @@ export function usePointillistRenderer(
 
       busyRef.current = false;
 
-      // Stale-drop: discard results from superseded renders
+      // Stale-drop: discard results superseded by a later render ID.
       if (renderId === renderIdRef.current) {
         const canvas = canvasRef.current;
         if (canvas) {
@@ -88,27 +92,31 @@ export function usePointillistRenderer(
         bitmap.close();
         optionsRef.current.onRenderDone?.(ms);
       } else {
-        bitmap.close(); // discard stale bitmap — no GC pressure
+        bitmap.close(); // discard — free GPU memory immediately
       }
-
-      drainPending();
     };
 
-    worker.onerror = (e) => {
-      console.error('[PointillistWorker error]', e);
+    w.onerror = (ev) => {
+      console.error('[PointillistWorker error]', ev);
       busyRef.current = false;
-      drainPending();
     };
 
-    workerRef.current = worker;
+    return w;
+  }, [canvasRef]);
+
+  // ── Worker mount / unmount ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!supportsWorker) return;
+    workerRef.current = spawnWorker();
     return () => {
-      worker.terminate();
+      workerRef.current?.terminate();
       workerRef.current = null;
     };
+  // spawnWorker is stable (useCallback with no deps that change)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once
+  }, []);
 
-  // ── Send to worker ───────────────────────────────────────────────────────
+  // ── Send to worker ──────────────────────────────────────────────────────────
   const sendToWorker = useCallback((req: RenderRequest) => {
     const worker = workerRef.current;
     if (!worker) return;
@@ -117,21 +125,21 @@ export function usePointillistRenderer(
     busyRef.current = true;
     optionsRef.current.onRenderStart?.();
 
-    // Transfer the pixel buffer — zero-copy, no serialisation overhead
+    // Transfer the pixel buffer — zero-copy; no serialisation overhead
     worker.postMessage(
       {
-        type: 'render',
+        type:     'render',
         renderId,
-        pixels: req.pixels,
-        width: req.width,
-        height: req.height,
+        pixels:   req.pixels,
+        width:    req.width,
+        height:   req.height,
         settings: req.settings,
       },
-      [req.pixelBuffer], // transfer the underlying ArrayBuffer
+      [req.pixelBuffer],
     );
   }, []);
 
-  // ── Fallback: render on main thread (no Worker / no OffscreenCanvas) ────
+  // ── Fallback: render on main thread (no Worker / no OffscreenCanvas) ────────
   const renderMainThread = useCallback((req: RenderRequest) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -139,12 +147,14 @@ export function usePointillistRenderer(
 
     // setTimeout(0) yields the paint frame so the UI doesn't freeze
     setTimeout(() => {
-      // Reconstruct a temporary canvas from the pixel buffer
-      const tmpSrc = document.createElement('canvas');
-      tmpSrc.width = req.width; tmpSrc.height = req.height;
-      const tmpCtx = tmpSrc.getContext('2d')!;
-      tmpCtx.putImageData(new ImageData(new Uint8ClampedArray(req.pixelBuffer.slice(0)), req.width, req.height), 0, 0);
-
+      const tmpSrc    = document.createElement('canvas');
+      tmpSrc.width    = req.width;
+      tmpSrc.height   = req.height;
+      const tmpCtx    = tmpSrc.getContext('2d')!;
+      tmpCtx.putImageData(
+        new ImageData(new Uint8ClampedArray(req.pixelBuffer.slice(0)), req.width, req.height),
+        0, 0,
+      );
       canvas.width  = req.width;
       canvas.height = req.height;
       const ms = renderPointillist(tmpSrc, canvas, req.settings);
@@ -152,56 +162,55 @@ export function usePointillistRenderer(
     }, 0);
   }, [canvasRef]);
 
-  // ── Drain pending queue ──────────────────────────────────────────────────
-  const drainPending = useCallback(() => {
-    if (!pendingRef.current) return;
-    const req = pendingRef.current;
-    pendingRef.current = null;
-    if (supportsWorker) {
-      sendToWorker(req);
-    } else {
-      renderMainThread(req);
-    }
-  }, [sendToWorker, renderMainThread]);
+  // ── Build a RenderRequest from the source canvas ────────────────────────────
+  const buildRequest = (
+    sourceImage: HTMLCanvasElement,
+    settings:    PointillistSettings,
+  ): RenderRequest => {
+    const pixelBuffer = sourceImage
+      .getContext('2d')!
+      .getImageData(0, 0, sourceImage.width, sourceImage.height)
+      .data.buffer
+      .slice(0); // defensive copy — keeps the source canvas intact
 
-  // ── Public: schedule a render ────────────────────────────────────────────
+    return {
+      pixels:      new Uint8ClampedArray(pixelBuffer),
+      pixelBuffer,
+      width:       sourceImage.width,
+      height:      sourceImage.height,
+      settings:    { ...settings },
+    };
+  };
+
+  // ── Public: schedule a render ───────────────────────────────────────────────
   const scheduleRender = useCallback((
     sourceImage: HTMLCanvasElement | null,
-    settings: PointillistSettings,
-    immediate = false,
+    settings:    PointillistSettings,
+    immediate    = false,
   ) => {
     if (!sourceImage) return;
 
-    // Always cancel any pending debounce timer
+    // Always cancel an in-flight debounce timer
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
 
     const fire = () => {
-      // Extract pixels on the main thread (fast, synchronous)
-      const pixelBuffer = sourceImage
-        .getContext('2d')!
-        .getImageData(0, 0, sourceImage.width, sourceImage.height)
-        .data.buffer
-        .slice(0); // copy so we can transfer without detaching the source
-
-      const req: RenderRequest = {
-        pixels: new Uint8ClampedArray(pixelBuffer),
-        pixelBuffer,
-        width: sourceImage.width,
-        height: sourceImage.height,
-        settings: { ...settings },
-        immediate,
-      };
+      const req = buildRequest(sourceImage, settings);
 
       if (supportsWorker) {
+        // ── Preemptive restart ──────────────────────────────────────────────
+        // If the worker is still churning through a previous render, terminate
+        // it immediately and spawn a fresh one.  The old result will never
+        // arrive (terminated workers produce no further messages), so there is
+        // no stale-drop risk — we simply start the new render right away.
         if (busyRef.current) {
-          // Worker busy — queue this request; previous pending is discarded
-          pendingRef.current = req;
-        } else {
-          sendToWorker(req);
+          workerRef.current?.terminate();
+          workerRef.current = spawnWorker();
+          busyRef.current = false;
         }
+        sendToWorker(req);
       } else {
         renderMainThread(req);
       }
@@ -212,7 +221,9 @@ export function usePointillistRenderer(
     } else {
       debounceRef.current = setTimeout(fire, DEBOUNCE_MS);
     }
-  }, [sendToWorker, renderMainThread]);
+  // spawnWorker is stable; sendToWorker / renderMainThread are stable callbacks
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendToWorker, renderMainThread, spawnWorker]);
 
   return { scheduleRender, supportsWorker };
 }
