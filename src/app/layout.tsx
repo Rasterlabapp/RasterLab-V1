@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RasterLab V2 — Halftone Studio",
-  description: "Professional halftone engine with CMYK separation, SVG export, and batch processing",
+  title: "Curato Lab — Halftone Studio",
+  description: "Precision tools for visual creators. Halftone engine with CMYK separation, SVG export, and batch processing.",
 };
 
 export default function RootLayout({

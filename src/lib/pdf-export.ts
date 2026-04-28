@@ -56,10 +56,10 @@ export async function exportPDF(
 
   // ── Metadata ─────────────────────────────────────────────────────────────
   pdf.setProperties({
-    title: title || 'RasterLab Halftone',
+    title: title || 'Curato Lab Halftone',
     subject: `Halftone · ${settings.mode} · ${settings.frequency}lpi · ${dpi}dpi`,
-    creator: 'RasterLab V2',
-    keywords: `halftone, ${settings.mode}, ${dpi}dpi, rasterlab`,
+    creator: 'Curato Lab',
+    keywords: `halftone, ${settings.mode}, ${dpi}dpi, curato-lab`,
   });
 
   // ── Image placement ───────────────────────────────────────────────────────
@@ -88,14 +88,14 @@ export async function exportPDF(
   pdf.setFontSize(6);
   pdf.setTextColor(150);
   pdf.text(
-    `RasterLab V2  ·  ${settings.mode}  ·  ${settings.frequency} lpi  ·  ${dpi} dpi  ·  ${dst.width}×${dst.height}px`,
+    `Curato Lab  ·  ${settings.mode}  ·  ${settings.frequency} lpi  ·  ${dpi} dpi  ·  ${dst.width}×${dst.height}px`,
     pageW / 2,
     pageH - 4,
     { align: 'center' },
   );
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  const filename = `${title || 'rasterlab'}-${settings.mode}-${dpi}dpi.pdf`;
+  const filename = `${title || 'curato-lab'}-${settings.mode}-${dpi}dpi.pdf`;
   pdf.save(filename);
 }
 

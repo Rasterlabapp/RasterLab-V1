@@ -264,7 +264,7 @@ function ExportTab() {
             const url = URL.createObjectURL(blob);
             const a   = document.createElement('a');
             a.href     = url;
-            a.download = `pointillist-${settings.colorMode}-${scale}x-${bgMode}-${Date.now()}.png`;
+            a.download = `curato-lab-pointillist-${settings.colorMode}-${scale}x-${bgMode}-${Date.now()}.png`;
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           }

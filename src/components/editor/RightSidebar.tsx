@@ -245,7 +245,7 @@ function ExportTab() {
     dpi: 300,
     colorMode: 'rgb',
     pageSize: 'fit',
-    title: 'RasterLab Halftone',
+    title: 'Curato Lab Halftone',
     includeBleed: true,
     cropMarks: true,
   });
@@ -260,7 +260,7 @@ function ExportTab() {
     renderHalftone(sourceImage, dst, settings);
     const a = document.createElement('a');
     a.href = dst.toDataURL('image/png');
-    a.download = 'rasterlab-halftone.png';
+    a.download = 'curato-lab-halftone.png';
     a.click();
   };
 
@@ -271,7 +271,7 @@ function ExportTab() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'rasterlab-halftone.svg';
+    a.download = 'curato-lab-halftone.svg';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -282,7 +282,7 @@ function ExportTab() {
     renderHalftone(sourceImage, dst, { ...settings, cmykMode: true, activeChannel: channel });
     const a = document.createElement('a');
     a.href = dst.toDataURL('image/png');
-    a.download = `rasterlab-${channel}-plate.png`;
+    a.download = `curato-lab-${channel}-plate.png`;
     a.click();
   };
 
