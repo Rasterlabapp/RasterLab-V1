@@ -1,11 +1,24 @@
 'use client';
 
-import { ControlPanel } from './ControlPanel';
+import { ControlPanel }  from './ControlPanel';
 import { PreviewCanvas } from './PreviewCanvas';
-import { RightPanel } from './RightPanel';
+import { RightPanel }    from './RightPanel';
+import { MobileLayout }  from './mobile/MobileLayout';
+import { useIsMobile }   from '@/hooks/useIsMobile';
 import Link from 'next/link';
 
 export function PointillistApp() {
+  const isMobile = useIsMobile(768);
+
+  // ── Mobile layout ──────────────────────────────────────────────────────────
+  // Single-column layout with bottom sheets and sticky action bar.
+  // Rendered client-side after the first paint to avoid hydration mismatch
+  // (useIsMobile returns false on the server).
+  if (isMobile) {
+    return <MobileLayout />;
+  }
+
+  // ── Desktop layout (≥ 768 px) ──────────────────────────────────────────────
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ background: '#0a0a0a' }}>
 
@@ -16,7 +29,7 @@ export function PointillistApp() {
       >
         {/* Wordmark — Curato Lab */}
         <Link href="/" className="flex items-center gap-3 group" style={{ textDecoration: 'none' }}>
-          {/* Logomark: dot grid in white square */}
+          {/* Logomark: weighted dot grid in white square */}
           <div
             className="w-[26px] h-[26px] rounded-[6px] flex items-center justify-center flex-shrink-0 transition-opacity duration-150 group-hover:opacity-80"
             style={{ background: '#ffffff' }}
@@ -36,16 +49,10 @@ export function PointillistApp() {
 
           {/* Wordmark */}
           <div className="flex items-baseline gap-[3px]">
-            <span
-              className="text-[15px] font-bold tracking-[-0.01em] transition-colors duration-150"
-              style={{ color: '#ffffff', letterSpacing: '-0.01em' }}
-            >
+            <span className="text-[15px] font-bold transition-colors duration-150" style={{ color: '#ffffff', letterSpacing: '-0.01em' }}>
               Curato
             </span>
-            <span
-              className="text-[15px] font-light tracking-[0.01em] transition-colors duration-150"
-              style={{ color: '#666666' }}
-            >
+            <span className="text-[15px] font-light transition-colors duration-150" style={{ color: '#666666', letterSpacing: '0.01em' }}>
               Lab
             </span>
           </div>
