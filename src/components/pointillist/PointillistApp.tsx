@@ -72,10 +72,23 @@ export function PointillistApp() {
           </span>
         </div>
 
-        {/* Tagline */}
-        <p className="ml-auto text-[11px] hidden lg:block select-none" style={{ color: '#303030' }}>
-          Precision tools for visual creators
-        </p>
+        {/* Nav links */}
+        <div className="ml-auto flex items-center gap-1">
+          <Link
+            href="/"
+            className="text-[11px] px-2.5 py-1 rounded transition-colors"
+            style={{ color: '#444', textDecoration: 'none' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#888')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#444')}
+          >Halftone</Link>
+          <Link
+            href="/patterns"
+            className="text-[11px] px-2.5 py-1 rounded transition-colors"
+            style={{ color: '#444', textDecoration: 'none' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#888')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#444')}
+          >Patterns</Link>
+        </div>
       </header>
 
       {/* ── Three-column layout ───────────────────────────────────────────────── */}

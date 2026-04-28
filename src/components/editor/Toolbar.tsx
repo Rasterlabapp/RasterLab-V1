@@ -24,6 +24,13 @@ export function Toolbar() {
       >
         ⬤ Pointillist
       </Link>
+      <Link
+        href="/patterns"
+        className="px-2.5 py-1 rounded text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+        title="Pattern Engines"
+      >
+        ▦ Patterns
+      </Link>
       <span className="text-zinc-600">|</span>
 
       {/* View mode */}
